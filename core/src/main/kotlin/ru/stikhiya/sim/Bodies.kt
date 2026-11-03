@@ -300,24 +300,38 @@ class Bodies(private val w: World, private val air: Air) {
             if (r > 0f) { val len = prev - runStart + 1; submerged += len; wetDensity += r * len
                 wcx += ((runStart % ww) + (prev % ww)) * 0.5f * len; wcy += (runStart / ww).toFloat() * len }
         }
+        // точнее — по ватерлинии: уровень жидкости в столбцах слева и справа от тела.
+        // Вода, вытесненная телу на макушку, на плавучесть не влияет.
+        if (submerged > 0 && waterLevel(rb)) {
+            submerged = 0; wcx = 0f; wcy = 0f
+            for (k in 0 until rb.stamped.n) {
+                val i = rb.stamped.a[k]
+                if (w.owner[i] != id) continue
+                val y = i / ww
+                if (y >= levelY) { submerged++; wcx += i % ww; wcy += y }
+            }
+            wetDensity = levelRho * submerged
+        }
         val body = rb.body
         if (fx != 0f || fy != 0f) {
             v1.set(fx, fy); body.applyForceToCenter(v1); body.applyTorque(torque)
         }
         // плавучесть: вес вытесненной жидкости, приложенный в центре подводной части
-        rb.wetFraction = if (rb.count > 0) submerged.toFloat() / rb.count else 0f
+        // доля под водой сглажена: тело не дёргается от перескоков уровня на одну клетку
+        val frac = if (rb.count > 0) submerged.toFloat() / rb.count else 0f
+        rb.wetFraction += (frac - rb.wetFraction) * 0.35f
         if (submerged > 0) {
             val rho = wetDensity / submerged
-            val fb = submerged * Units.VOL * rho * Units.GRAVITY * BOX_FORCE
+            val fb = rb.wetFraction * rb.count * Units.VOL * rho * Units.GRAVITY * BOX_FORCE
             v1.set(0f, -fb)
             v2.set((wcx / submerged + 0.5f) * B, (wcy / submerged + 0.5f) * B)
             body.applyForce(v1, v2)
-            // вязкое сопротивление воды
-            val damp = 1f - 0.06f * rb.wetFraction
+            // сопротивление воды: тело покачается и успокоится, а не выпрыгнет
+            val damp = 1f - 0.12f * rb.wetFraction
             val lv = body.linearVelocity
-            v3.set(lv.x * damp, lv.y * damp)
+            v3.set(lv.x * damp, lv.y * (1f - 0.18f * rb.wetFraction))
             body.linearVelocity = v3
-            body.angularVelocity = body.angularVelocity * (1f - 0.08f * rb.wetFraction)
+            body.angularVelocity = body.angularVelocity * (1f - 0.2f * rb.wetFraction)
         }
         // опора на песке и других порошках: гасим падение в точках касания
         if (contactN > 0) {
@@ -333,6 +347,43 @@ class Bodies(private val w: World, private val air: Air) {
                 body.applyForce(v1, v2)
             }
         }
+    }
+
+    private var levelY = 0
+    private var levelRho = 0f
+
+    /** Найти уровень жидкости рядом с телом (в levelY/levelRho). false — рядом нет открытой жидкости. */
+    private fun waterLevel(rb: RigidBody): Boolean {
+        val ww = w.w
+        var x0 = Int.MAX_VALUE; var x1 = -1; var y0 = Int.MAX_VALUE; var y1 = -1
+        for (k in 0 until rb.stamped.n) {
+            val i = rb.stamped.a[k]
+            val x = i % ww; val y = i / ww
+            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y
+        }
+        if (x1 < 0) return false
+        var sum = 0; var n = 0; var rho = 0f
+        for (side in 0 until 2) {
+            val cx = if (side == 0) x0 - 3 else x1 + 3
+            if (cx < 0 || cx >= ww) continue
+            val yTop = maxOf(0, y0 - 40)
+            val yBot = minOf(w.h - 1, y1 + 2)
+            for (y in yTop..yBot) {
+                val j = y * ww + cx
+                val t = w.type[j].toInt()
+                if (Mat.isLiquid(t) && w.owner[j].toInt() == 0) {
+                    // поверхность: под ней ещё жидкость (не случайная капля)
+                    val below = j + ww
+                    if (y + 1 < w.h && !Mat.isLiquid(w.type[below].toInt())) continue
+                    sum += y; n++; rho += w.cellDensity(j)
+                    break
+                }
+            }
+        }
+        if (n == 0) return false
+        levelY = (sum + n / 2) / n
+        levelRho = rho / n
+        return true
     }
 
     /** Плотность жидкости у краёв отрезка строки [a..b] или 0, если по краям не жидкость. */

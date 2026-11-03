@@ -200,36 +200,46 @@ class Motion(private val w: World, private val air: Air) {
             }
         }
 
-        // растекание в стороны
+        // растекание в стороны: сначала туда, куда текла, а упёрлась — в другую сторону
         var dir = if ((w.flags[i].toInt() and 1) == 0) -1 else 1
         val spread = Mat.spread[id]
-        var k = 0
-        while (k < spread) {
-            k++
-            val nx = x + dir
-            if (nx < 0 || nx >= ww) { dir = -dir; break }
-            val j = i + dir
-            val t = w.type[j].toInt()
-            if (t == Mat.AIR || Mat.phase[t] <= Phase.FLAME.ordinal) {
-                move(i, j); i = j; x = nx
-                // впереди обрыв — дальше падаем на следующем тике
-                if (y < w.h - 1 && passable(i + ww)) break
-                continue
-            }
-            if (t == id) {
-                if (w.amt[j] < 0.999f && sameSolute(i, j) && merge(i, j)) return
-                // проходим сквозь свою жидкость только ради выравнивания температуры/раствора
+        for (attempt in 0 until 2) {
+            var moved = false
+            var k = 0
+            while (k < spread) {
+                k++
+                val nx = x + dir
+                if (nx < 0 || nx >= ww) break
+                val j = i + dir
+                val t = w.type[j].toInt()
+                if (t == Mat.AIR || Mat.phase[t] <= Phase.FLAME.ordinal) {
+                    move(i, j); i = j; x = nx; moved = true
+                    // впереди обрыв — дальше падаем на следующем тике
+                    if (y < w.h - 1 && canFallInto(i + ww)) break
+                    continue
+                }
+                if (t == id) {
+                    if (w.amt[j] < 0.999f && sameSolute(i, j) && merge(i, j)) return
+                    break
+                }
+                // более лёгкая жидкость уступает место (вода подтекает под масло)
+                if (Mat.isLiquid(t) && w.cellDensity(j) < rho && w.rnd() < 0.5f) {
+                    move(i, j); i = j; x = nx; moved = true
+                    continue
+                }
                 break
             }
-            if (Mat.isLiquid(t) && w.cellDensity(j) < rho && w.rnd() < 0.5f) {
-                move(i, j); i = j; x = nx
-                continue
-            }
+            if (moved) break
             dir = -dir
-            break
         }
         w.flags[i] = ((w.flags[i].toInt() and 0xFE) or (if (dir > 0) 1 else 0)).toByte()
         w.stamp[i] = tick
+    }
+
+    /** Под клеткой пусто (воздух или газ) — туда можно упасть. */
+    private fun canFallInto(j: Int): Boolean {
+        val t = w.type[j].toInt()
+        return t == Mat.AIR || Mat.phase[t] <= Phase.FLAME.ordinal
     }
 
     private fun passableForLiquid(j: Int, rho: Float): Boolean {
