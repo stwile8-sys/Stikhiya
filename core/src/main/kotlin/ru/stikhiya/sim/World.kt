@@ -13,6 +13,7 @@ class World(val w: Int, val h: Int) {
     val type = ShortArray(n)
     val temp = FloatArray(n) { Units.AMBIENT }
     val vy = FloatArray(n)          // скорость падения, клеток/тик
+    val vx = FloatArray(n)          // скорость вбок (инерция жидкости — волны), клеток/тик
     val amt = FloatArray(n) { 1f }  // количество вещества в клетке (1 — полная клетка; у газа — сжатие)
     val mixId = ShortArray(n)
     val mix = FloatArray(n)
@@ -31,7 +32,7 @@ class World(val w: Int, val h: Int) {
     fun inside(x: Int, y: Int) = x in 0 until w && y in 0 until h
 
     fun clear() {
-        type.fill(0); temp.fill(Units.AMBIENT); vy.fill(0f); amt.fill(1f)
+        type.fill(0); temp.fill(Units.AMBIENT); vy.fill(0f); vx.fill(0f); amt.fill(1f)
         mixId.fill(0); mix.fill(0f); latent.fill(0f); cure.fill(0f); burn.fill(0f)
         life.fill(0f); flags.fill(0); stamp.fill(0); owner.fill(0)
     }
@@ -41,6 +42,7 @@ class World(val w: Int, val h: Int) {
         type[i] = id.toShort()
         temp[i] = t
         vy[i] = 0f
+        vx[i] = 0f
         amt[i] = 1f
         mixId[i] = 0
         mix[i] = 0f
@@ -136,6 +138,7 @@ class World(val w: Int, val h: Int) {
         val t0 = type[a]; type[a] = type[b]; type[b] = t0
         val f1 = temp[a]; temp[a] = temp[b]; temp[b] = f1
         val f2 = vy[a]; vy[a] = vy[b]; vy[b] = f2
+        val f9 = vx[a]; vx[a] = vx[b]; vx[b] = f9
         val f3 = amt[a]; amt[a] = amt[b]; amt[b] = f3
         val s1 = mixId[a]; mixId[a] = mixId[b]; mixId[b] = s1
         val f4 = mix[a]; mix[a] = mix[b]; mix[b] = f4

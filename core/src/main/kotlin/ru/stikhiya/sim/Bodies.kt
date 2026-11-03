@@ -45,7 +45,14 @@ class RigidBody(val id: Int, val lw: Int, val lh: Int) {
     val stampedLocal = IntList(64)
     val freed = IntList(64)          // клетки, которые тело освободило в этом шаге (сюда уходит вытесненная вода)
     var freedPos = 0
+    var wetPos = 0
     var wetFraction = 0f
+
+    // положение, в котором тело последний раз впечатано в сетку
+    var stampX = 0f
+    var stampY = 0f
+    var stampA = 0f
+    var hasStamp = false
 
     /** Масса, кг (плотности в Box2D подобраны так, что масса тела — настоящая). */
     val mass: Float get() = body.mass
@@ -341,21 +348,25 @@ class Bodies(private val w: World, private val air: Air) {
             body.angularVelocity = body.angularVelocity * (1f - minOf(0.5f, 0.2f * ratio * rb.wetFraction))
         }
         airDrag(rb)
-        // опора на песке и других порошках: гасим падение в точках касания
+        // опора на песке и других порошках. Сила вязкая и симметричная: тормозит и падение, и подскок,
+        // поэтому покачивание не превращается в «всплытие» тяжёлого тела из песка.
         if (contactN > 0) {
             val share = powderBottom.toFloat() / (powderBottom + solidBottom)
             val m = body.mass / contactN
+            val vyc = body.linearVelocity.y
+            val weight = m * BOX_G * share
+            // песок держит вес, но удар гасит не сразу: тяжёлое тело проминает его глубже
+            val damp = (m * vyc / Units.DT * 0.9f).coerceIn(-weight, POWDER_STOP_FORCE)
+            val fyc = -(weight + damp)
             for (c in 0 until contactN) {
                 v2.set(contactX[c] * B, contactY[c] * B)
                 body.getLinearVelocityFromWorldPointToOut(v2, v3)
-                if (v3.y < -1f) continue // летит вверх — опора не нужна
-                // песок держит вес, но удар гасит не сразу: тяжёлое тело проминает его глубже
-                val stop = minOf(m * maxOf(0f, v3.y) / Units.DT * 0.9f, POWDER_STOP_FORCE)
-                val fyc = -(m * BOX_G * share + stop)
                 val fxc = -m * v3.x / Units.DT * 0.15f
                 v1.set(fxc, fyc)
                 body.applyForce(v1, v2)
             }
+            // трение в песке гасит раскачивание
+            body.angularVelocity = body.angularVelocity * 0.9f
         }
     }
 
@@ -445,7 +456,7 @@ class Bodies(private val w: World, private val air: Air) {
     /** Убрать тело из мира клеток перед шагом физики (клетки становятся воздухом). */
     private fun unstamp(rb: RigidBody) {
         val id = rb.id.toShort()
-        rb.freed.clear(); rb.freedPos = 0
+        rb.freed.clear(); rb.freedPos = 0; rb.wetPos = 0
         for (k in 0 until rb.stamped.n) {
             val i = rb.stamped.a[k]
             if (w.owner[i] == id) {
@@ -460,24 +471,34 @@ class Bodies(private val w: World, private val air: Air) {
     /** Впечатать тело в мир под новым углом; частицы на пути выталкиваются в соседние пустые клетки. */
     private fun stamp(rb: RigidBody) {
         val body = rb.body
-        val pos = body.position
-        val ang = body.angle
-        val c = cos(ang)
-        val s = sin(ang)
+        var px0 = body.position.x
+        var py0 = body.position.y
+        var ang = body.angle
+        // почти не сдвинулось — остаётся в тех же клетках: лежащее тело не дрожит и не расталкивает воду
         val hx = rb.lw * 0.5f * B
         val hy = rb.lh * 0.5f * B
+        val reach = kotlin.math.sqrt(hx * hx + hy * hy)
+        if (rb.hasStamp && kotlin.math.abs(px0 - rb.stampX) < 0.3f * B && kotlin.math.abs(py0 - rb.stampY) < 0.3f * B &&
+            kotlin.math.abs(ang - rb.stampA) * reach < 0.3f * B) {
+            px0 = rb.stampX; py0 = rb.stampY; ang = rb.stampA
+        } else {
+            rb.stampX = px0; rb.stampY = py0; rb.stampA = ang; rb.hasStamp = true
+        }
+        val c = cos(ang)
+        val s = sin(ang)
         val ex = kotlin.math.abs(c) * hx + kotlin.math.abs(s) * hy
         val ey = kotlin.math.abs(s) * hx + kotlin.math.abs(c) * hy
-        val x0 = max(0, floor((pos.x - ex) / B).toInt() - 1)
-        val x1 = min(w.w - 1, floor((pos.x + ex) / B).toInt() + 1)
-        val y0 = max(0, floor((pos.y - ey) / B).toInt() - 1)
-        val y1 = min(w.h - 1, floor((pos.y + ey) / B).toInt() + 1)
+        val x0 = max(0, floor((px0 - ex) / B).toInt() - 1)
+        val x1 = min(w.w - 1, floor((px0 + ex) / B).toInt() + 1)
+        val y0 = max(0, floor((py0 - ey) / B).toInt() - 1)
+        val y1 = min(w.h - 1, floor((py0 + ey) / B).toInt() + 1)
         val id = rb.id.toShort()
-        boxX0 = x0; boxX1 = x1
+        boxX0 = x0; boxX1 = x1; boxY1 = y1
+        surfacesReady = false
         for (y in y0..y1) {
             for (x in x0..x1) {
-                val px = (x + 0.5f) * B - pos.x
-                val py = (y + 0.5f) * B - pos.y
+                val px = (x + 0.5f) * B - px0
+                val py = (y + 0.5f) * B - py0
                 val lx = (c * px + s * py) / B + rb.lw * 0.5f
                 val ly = (-s * px + c * py) / B + rb.lh * 0.5f
                 if (lx < 0f || ly < 0f) continue
@@ -494,7 +515,9 @@ class Bodies(private val w: World, private val air: Air) {
                     if (ph == Phase.SOLID.ordinal) continue
                     if (ph >= Phase.LIQUID.ordinal) {
                         // вытесняем частицу рядом, а если вокруг тесно (глубоко в воде) — туда, откуда тело ушло
-                        var f = findFree(x, y)
+                        // жидкость: под водой затекает в место, которое тело освободило; на входе в воду поднимает уровень
+                        var f = if (ph == Phase.LIQUID.ordinal) wetFreedCell(rb) else -1
+                        if (f < 0) f = findFree(x, y)
                         if (f < 0 && ph == Phase.LIQUID.ordinal) f = surfaceCell(x, y)
                         if (f < 0) f = freedCell(rb)
                         if (f < 0) continue
@@ -521,32 +544,84 @@ class Bodies(private val w: World, private val air: Air) {
 
     private var boxX0 = 0
     private var boxX1 = 0
+    private var boxY1 = 0
+    private var surfacesReady = false
+    private var surfFrom = 0
+    private val surf = IntArray(1024)
 
     /**
-     * Вытесненная жидкость поднимает уровень рядом с телом: ищем ближайший к телу столбец жидкости
-     * и кладём каплю на его поверхность.
+     * Вытесненная жидкость поднимает уровень рядом с телом и, как в жизни, сначала заполняет самое низкое место:
+     * среди соседних столбцов жидкости выбираем тот, где поверхность ниже всего, и кладём каплю на неё.
      */
     private fun surfaceCell(x: Int, y: Int): Int {
         val ww = w.w
-        val leftFirst = x - boxX0 < boxX1 - x
-        for (d in 1..40) {
-            for (side in 0 until 2) {
-                val goLeft = (side == 0) == leftFirst
-                val sx = if (goLeft) boxX0 - d else boxX1 + d
-                if (sx < 0 || sx >= ww) continue
-                val j0 = y * ww + sx
-                if (!Mat.isLiquid(w.type[j0].toInt()) || w.owner[j0].toInt() != 0) continue
-                var yy = y - 1
-                while (yy >= 0) {
-                    val j = yy * ww + sx
-                    val t = w.type[j].toInt()
-                    if (w.owner[j].toInt() != 0) break
-                    if (Mat.isLiquid(t)) { yy--; continue }
-                    if (t == Mat.AIR || Mat.isGas(t)) return j
-                    break
-                }
-            }
+        if (!surfacesReady) prepareSurfaces()
+        var best = -1
+        var bestY = -1
+        var bestD = Int.MAX_VALUE
+        val n = minOf(surf.size, ww - surfFrom)
+        for (k in 0 until n) {
+            val sy = surf[k]
+            if (sy < 0) continue
+            val sx = surfFrom + k
+            val d = kotlin.math.abs(sx - x)
+            if (sy > bestY || (sy == bestY && d < bestD)) { best = k; bestY = sy; bestD = d }
         }
+        if (best < 0) return -1
+        val j = bestY * ww + surfFrom + best
+        surf[best] = bestY - 1  // столбец поднялся на клетку
+        if (bestY - 1 >= 0) {
+            val above = (bestY - 1) * ww + surfFrom + best
+            if (w.type[above].toInt() != Mat.AIR && !Mat.isGas(w.type[above].toInt()) || w.owner[above].toInt() != 0) surf[best] = -1
+        } else surf[best] = -1
+        return j
+    }
+
+    /** Поверхность жидкости в столбцах вокруг тела (−1 — столбец не подходит). */
+    private fun prepareSurfaces() {
+        surfacesReady = true
+        val ww = w.w
+        val margin = 24
+        surfFrom = maxOf(0, boxX0 - margin)
+        val to = minOf(ww - 1, boxX1 + margin, surfFrom + surf.size - 1)
+        val startY = minOf(w.h - 1, boxY1)
+        for (sx in surfFrom..to) {
+            val k = sx - surfFrom
+            surf[k] = -1
+            // внутри самого тела вода не поднимается
+            if (sx in boxX0..boxX1) continue
+            var yy = startY
+            if (!Mat.isLiquid(w.type[yy * ww + sx].toInt()) || w.owner[yy * ww + sx].toInt() != 0) continue
+            while (yy >= 0) {
+                val j = yy * ww + sx
+                val t = w.type[j].toInt()
+                if (w.owner[j].toInt() != 0) { yy = -1; break }
+                if (Mat.isLiquid(t)) { yy--; continue }
+                break
+            }
+            if (yy < 0) continue
+            val j = yy * ww + sx
+            val t = w.type[j].toInt()
+            if (t == Mat.AIR || Mat.isGas(t)) surf[k] = yy
+        }
+        for (k in (to - surfFrom + 1) until surf.size) surf[k] = -1
+    }
+
+    /** Освобождённая телом клетка, к которой примыкает жидкость (вода смыкается за телом). */
+    private fun wetFreedCell(rb: RigidBody): Int {
+        val ww = w.w
+        var k = rb.wetPos
+        while (k < rb.freed.n) {
+            val j = rb.freed.a[k++]
+            if (w.owner[j].toInt() != 0 || w.type[j].toInt() != Mat.AIR) continue
+            val x = j % ww
+            val up = j - ww
+            val wet = (up >= 0 && Mat.isLiquid(w.type[up].toInt()) && w.owner[up].toInt() == 0) ||
+                (x > 0 && Mat.isLiquid(w.type[j - 1].toInt()) && w.owner[j - 1].toInt() == 0) ||
+                (x < ww - 1 && Mat.isLiquid(w.type[j + 1].toInt()) && w.owner[j + 1].toInt() == 0)
+            if (wet) { rb.wetPos = k; return j }
+        }
+        rb.wetPos = k
         return -1
     }
 

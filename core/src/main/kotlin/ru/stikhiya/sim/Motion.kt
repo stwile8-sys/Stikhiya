@@ -157,6 +157,7 @@ class Motion(private val w: World, private val air: Air) {
         }
         if (blow(i, x, y, 8f) >= 0) return
         val rho = w.cellDensity(i)
+        val visc = Mat.viscosity[id]
         w.vy[i] = minOf(w.vy[i] + Units.G, Units.MAX_FALL)
         var n = steps(w.vy[i])
         if (n < 1) n = 1
@@ -180,12 +181,20 @@ class Motion(private val w: World, private val air: Air) {
             break
         }
         if (fell) { w.stamp[i] = tick; return }
-        w.vy[i] = 0f
-        if (Mat.viscosity[id] > 0f && w.rnd() < Mat.viscosity[id]) { w.stamp[i] = tick; return }
 
-        // вниз по диагонали
+        // упала на что-то — часть скорости падения уходит вбок: брызги и набегающая волна
+        var vx = w.vx[i]
+        val impact = w.vy[i]
+        w.vy[i] = 0f
+        if (impact > 1.2f) {
+            val sgn = if (vx > 0.1f) 1f else if (vx < -0.1f) -1f else if (w.rnd() < 0.5f) -1f else 1f
+            vx += sgn * impact * 0.55f * (1f - visc)
+        }
+        if (visc > 0f && w.rnd() < visc) { w.vx[i] = vx * 0.5f; w.stamp[i] = tick; return }
+
+        // вниз по диагонали — со склона жидкость разгоняется вбок
         if (y < w.h - 1) {
-            val dir = if (w.rnd() < 0.5f) -1 else 1
+            val dir = if (vx > 0.3f) 1 else if (vx < -0.3f) -1 else if (w.rnd() < 0.5f) -1 else 1
             for (k in 0 until 2) {
                 val dx = if (k == 0) dir else -dir
                 val nx = x + dx
@@ -194,22 +203,23 @@ class Motion(private val w: World, private val air: Air) {
                 val side = i + dx
                 if (passableForLiquid(side, rho) && canSink(rho, id, diag)) {
                     move(i, diag)
+                    w.vx[diag] = (if (dx > 0) maxOf(vx, 0f) else minOf(vx, 0f)) + dx * 0.4f
                     w.stamp[diag] = tick
                     return
                 }
             }
         }
 
-        // растекание в стороны: сначала туда, куда текла, а упёрлась — в другую сторону
-        var dir = if ((w.flags[i].toInt() and 1) == 0) -1 else 1
-        val spread = Mat.spread[id]
+        // растекание в стороны: по инерции туда, куда текла; упёрлась — волна отражается
+        var dir = if (vx > 0.3f) 1 else if (vx < -0.3f) -1 else if ((w.flags[i].toInt() and 1) == 0) -1 else 1
+        val spread = maxOf(Mat.spread[id], minOf(10, kotlin.math.abs(vx).toInt() + 1))
         for (attempt in 0 until 2) {
             var moved = false
             var k = 0
             while (k < spread) {
                 k++
                 val nx = x + dir
-                if (nx < 0 || nx >= ww) break
+                if (nx < 0 || nx >= ww) { if (attempt == 0) vx = -vx * 0.5f; break }
                 val j = i + dir
                 val t = w.type[j].toInt()
                 if (t == Mat.AIR || Mat.phase[t] <= Phase.FLAME.ordinal) {
@@ -220,6 +230,8 @@ class Motion(private val w: World, private val air: Air) {
                 }
                 if (t == id) {
                     if (w.amt[j] < 0.999f && sameSolute(i, j) && merge(i, j)) return
+                    // толкает соседнюю воду — волна бежит дальше по поверхности
+                    if (kotlin.math.abs(vx) > 0.5f) { w.vx[j] += vx * 0.45f; vx *= 0.5f }
                     break
                 }
                 // более лёгкая жидкость уступает место (вода подтекает под масло)
@@ -227,11 +239,15 @@ class Motion(private val w: World, private val air: Air) {
                     move(i, j); i = j; x = nx; moved = true
                     continue
                 }
+                // стенка: волна отражается
+                if (attempt == 0 && kotlin.math.abs(vx) > 0.5f) vx = -vx * 0.5f
                 break
             }
             if (moved) break
             dir = -dir
         }
+        // вязкость гасит движение
+        w.vx[i] = vx * (0.95f - 0.5f * visc)
         w.flags[i] = ((w.flags[i].toInt() and 0xFE) or (if (dir > 0) 1 else 0)).toByte()
         w.stamp[i] = tick
     }
