@@ -158,6 +158,20 @@ class Motion(private val w: World, private val air: Air) {
         if (blow(i, x, y, 8f) >= 0) return
         val rho = w.cellDensity(i)
         val visc = Mat.viscosity[id]
+        // брызги и накат волны летят вверх, пока гравитация их не остановит
+        if (w.vy[i] < -0.2f) {
+            val vy = w.vy[i] + Units.G
+            var up = steps(-vy)
+            var rose = false
+            while (up > 0 && y > 0 && canFallInto(i - ww)) { move(i, i - ww); i -= ww; y--; up--; rose = true }
+            if (rose) {
+                w.vy[i] = if (up > 0) 0f else vy
+                i = drift(i, x)
+                w.stamp[i] = tick
+                return
+            }
+            w.vy[i] = 0f
+        }
         w.vy[i] = minOf(w.vy[i] + Units.G, Units.MAX_FALL)
         var n = steps(w.vy[i])
         if (n < 1) n = 1
@@ -180,7 +194,7 @@ class Motion(private val w: World, private val air: Air) {
             }
             break
         }
-        if (fell) { w.stamp[i] = tick; return }
+        if (fell) { i = drift(i, x); w.stamp[i] = tick; return }
 
         // упала на что-то — часть скорости падения уходит вбок: брызги и набегающая волна
         var vx = w.vx[i]
@@ -188,6 +202,13 @@ class Motion(private val w: World, private val air: Air) {
         w.vy[i] = 0f
         if (impact > 1.2f) {
             val sgn = if (vx > 0.1f) 1f else if (vx < -0.1f) -1f else if (w.rnd() < 0.5f) -1f else 1f
+            // изредка капля отскакивает вверх — брызги
+            if (impact > 3f && visc < 0.2f && y > 0 && canFallInto(i - ww) && w.rnd() < 0.15f) {
+                w.vy[i] = -impact * 0.28f
+                w.vx[i] = vx + sgn * impact * 0.3f
+                w.stamp[i] = tick
+                return
+            }
             vx += sgn * impact * 0.55f * (1f - visc)
         }
         if (visc > 0f && w.rnd() < visc) { w.vx[i] = vx * 0.5f; w.stamp[i] = tick; return }
@@ -231,7 +252,7 @@ class Motion(private val w: World, private val air: Air) {
                 if (t == id) {
                     if (w.amt[j] < 0.999f && sameSolute(i, j) && merge(i, j)) return
                     // толкает соседнюю воду — волна бежит дальше по поверхности
-                    if (kotlin.math.abs(vx) > 0.5f) { w.vx[j] += vx * 0.45f; vx *= 0.5f }
+                    if (attempt == 0 && kotlin.math.abs(vx) > 0.5f) { w.vx[j] += vx * 0.45f; vx *= 0.5f }
                     break
                 }
                 // более лёгкая жидкость уступает место (вода подтекает под масло)
@@ -239,7 +260,13 @@ class Motion(private val w: World, private val air: Air) {
                     move(i, j); i = j; x = nx; moved = true
                     continue
                 }
-                // стенка: волна отражается
+                // стенка: быстрая вода накатывает вверх, медленная отражается
+                if (attempt == 0 && kotlin.math.abs(vx) > 1.5f && y > 0 && canFallInto(i - ww)) {
+                    w.vy[i] = -kotlin.math.abs(vx) * 0.45f
+                    w.vx[i] = -vx * 0.15f
+                    w.stamp[i] = tick
+                    return
+                }
                 if (attempt == 0 && kotlin.math.abs(vx) > 0.5f) vx = -vx * 0.5f
                 break
             }
@@ -250,6 +277,24 @@ class Motion(private val w: World, private val air: Air) {
         w.vx[i] = vx * (0.95f - 0.5f * visc)
         w.flags[i] = ((w.flags[i].toInt() and 0xFE) or (if (dir > 0) 1 else 0)).toByte()
         w.stamp[i] = tick
+    }
+
+    /** Полёт вбок по инерции (струя, брызги): сдвиг на |vx| клеток через воздух. Возвращает новую клетку. */
+    private fun drift(i0: Int, x0: Int): Int {
+        var i = i0
+        var x = x0
+        var vx = w.vx[i]
+        if (abs(vx) < 0.3f) return i
+        val dir = if (vx > 0f) 1 else -1
+        var n = minOf(10, steps(abs(vx)))
+        while (n > 0) {
+            n--
+            val nx = x + dir
+            if (nx < 0 || nx >= w.w || !canFallInto(i + dir)) { vx = -vx * 0.3f; break }
+            move(i, i + dir); i += dir; x = nx
+        }
+        w.vx[i] = vx * 0.99f
+        return i
     }
 
     /** Под клеткой пусто (воздух или газ) — туда можно упасть. */

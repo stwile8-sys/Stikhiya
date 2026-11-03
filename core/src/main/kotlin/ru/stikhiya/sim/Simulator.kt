@@ -7,6 +7,7 @@ class Simulator(val world: World) {
     val motion = Motion(world, air)
     val chemistry = Chemistry(world, air)
     val bodies = Bodies(world, air)
+    val hydro = Hydro(world)
     var tick = 0
         private set
 
@@ -24,6 +25,7 @@ class Simulator(val world: World) {
         air.step()
         bodies.step()
         motion.step(tick)
+        hydro.step(tick)
     }
 
     fun clear() {
