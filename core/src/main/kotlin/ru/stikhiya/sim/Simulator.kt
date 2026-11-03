@@ -59,8 +59,8 @@ object Brush {
                 when (tool) {
                     Tool.DRAW -> draw(w, i, substance)
                     Tool.ERASE -> if (w.type[i].toInt() != Mat.AIR) w.toAir(i)
-                    Tool.HEAT -> heatCell(w, i, 6f)
-                    Tool.COOL -> heatCell(w, i, -6f)
+                    Tool.HEAT -> heatCell(w, i, 15f)
+                    Tool.COOL -> heatCell(w, i, -15f)
                     Tool.STIR -> stir(w, i, x, y, r)
                     else -> {}
                 }
@@ -85,7 +85,7 @@ object Brush {
         val c = w.heatCapacity(i)
         val mass = maxOf(w.cellMass(i), 1e-7f)
         // одинаковая мощность на массу, но не быстрее 20 °C за тик
-        val dT = (rate * 1000f * Units.DT * 60f * mass / c).coerceIn(-20f, 20f)
+        val dT = (rate * 1000f * Units.DT * 60f * mass / c).coerceIn(-40f, 40f)
         val t = w.temp[i] + dT
         w.temp[i] = t.coerceIn(Units.ABS_ZERO + 1f, 6000f)
     }

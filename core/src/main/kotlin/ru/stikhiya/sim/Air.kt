@@ -316,7 +316,20 @@ class Air(private val w: World) {
             if (y > 0) visit(c - aw).let { if (it) queue[tail++] = c - aw }
             if (y < ah - 1) visit(c + aw).let { if (it) queue[tail++] = c + aw }
         }
+        // стенки на границе открытого воздуха тоже дышат: у поверхности дров кислород не кончается
+        for (c in 0 until an) {
+            if (!blocked[c] || open[c]) continue
+            val x = c % aw
+            val y = c / aw
+            if ((x > 0 && open[c - 1] && !blocked[c - 1]) || (x < aw - 1 && open[c + 1] && !blocked[c + 1]) ||
+                (y > 0 && open[c - aw] && !blocked[c - aw]) || (y < ah - 1 && open[c + aw] && !blocked[c + aw])) {
+                surfaceOpen[c] = true
+            }
+        }
+        for (c in 0 until an) if (surfaceOpen[c]) { open[c] = true; surfaceOpen[c] = false }
     }
+
+    private val surfaceOpen = BooleanArray(an)
 
     private fun visit(c: Int): Boolean {
         if (open[c] || blocked[c]) return false

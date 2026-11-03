@@ -115,7 +115,7 @@ class Heat(private val w: World, private val air: Air) {
             val gas = if (ki == 0) a else b
             val surf = if (ki == 0) j else i
             val gasCell = if (ki == 0) i else j
-            var h = if (gas == Mat.FLAME) 60f else 10f
+            var h = if (gas == Mat.FLAME) 150f else 15f
             val ts = temp[surf]
             val tg = temp[gasCell]
             // плёночная конденсация пара на холодной стенке
@@ -135,12 +135,13 @@ class Heat(private val w: World, private val air: Air) {
             val fluid = if (ki == 1 && (kj != 1 || ti < tj)) i else j
             val wall = if (fluid == i) j else i
             val fid = w.type[fluid].toInt()
-            var h = 300f
+            var h = 1000f
             val boilTo = Mat.hotTo[fid]
             if (boilTo >= 0 && Mat.isGas(boilTo)) {
                 val boil = air.boilPoint(fid, Mat.hotAt[fid], fluid)
                 if (temp[fluid] >= boil - 0.5f && temp[wall] > boil) {
-                    h = if (temp[wall] - boil > 200f) 400f else 10000f
+                    // очень горячая стенка — паровая подушка (эффект Лейденфроста), но кипит всё равно бойко
+                    h = if (temp[wall] - boil > 300f) 2500f else 10000f
                 }
             }
             g = maxOf(h * Units.AREA, harmonic(k[i], k[j]) * Units.CELL)

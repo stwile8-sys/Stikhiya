@@ -26,18 +26,19 @@ object Substances {
         Substance("glass", "Стекло", P.SOLID, C.SOLID, 0xBFE3EE, density = 2500f, heatCapacity = 840f,
             conductivity = 1.0f, alpha = 0.35f, colorVar = 0.01f, hotAt = 1400f, hotTo = "molten_glass"),
         Substance("wood", "Дерево", P.SOLID, C.SOLID, 0x8B5A2E, density = 700f, heatCapacity = 1700f,
-            conductivity = 0.17f, colorVar = 0.08f, flashPoint = 300f, autoIgnition = 400f, burnTime = 600f,
+            conductivity = 0.17f, colorVar = 0.08f, flashPoint = 300f, autoIgnition = 400f, burnTime = 40f,
             burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.25f, smoke = 0.08f, flameTemp = 1000f,
-            charAt = 350f, charTo = "charcoal", oxygenNeed = 1.4f),
+            charAt = 350f, charTo = "charcoal", oxygenNeed = 1.4f, fineness = 0.3f),
         Substance("charcoal", "Уголь", P.SOLID, C.SOLID, 0x2A2826, density = 400f, heatCapacity = 1000f,
-            conductivity = 0.1f, colorVar = 0.05f, flashPoint = 350f, autoIgnition = 450f, burnTime = 1200f,
-            burnHeat = 2.9e7f, burnTo = "ash", burnResidue = 0.15f, smoke = 0f, flameTemp = 1100f, oxygenNeed = 2.67f),
+            conductivity = 0.1f, colorVar = 0.05f, flashPoint = 350f, autoIgnition = 450f, burnTime = 80f,
+            burnHeat = 2.9e7f, burnTo = "ash", burnResidue = 0.15f, smoke = 0f, flameTemp = 1100f, oxygenNeed = 2.67f,
+            fineness = 0.15f),
         Substance("ice", "Лёд", P.SOLID, C.SOLID, 0xCFE9F7, density = 917f, heatCapacity = 2100f,
             conductivity = 2.2f, alpha = 0.85f, colorVar = 0.02f, spawnTemp = -10f,
             hotAt = 0f, hotTo = "water", hotLatent = 3.34e5f),
         Substance("dried_glue", "Засохший клей", P.SOLID, C.SOLID, 0xEDE6C8, density = 1200f, heatCapacity = 1500f,
             conductivity = 0.2f, alpha = 0.9f, colorVar = 0.02f, flashPoint = 350f, autoIgnition = 450f,
-            burnTime = 400f, burnHeat = 2.2e7f, smoke = 0.3f, oxygenNeed = 1.6f),
+            burnTime = 30f, burnHeat = 2.2e7f, smoke = 0.3f, oxygenNeed = 1.6f, fineness = 0.2f),
         Substance("concrete", "Бетон", P.SOLID, C.SOLID, 0x9C9C97, density = 2400f, heatCapacity = 880f,
             conductivity = 1.7f, colorVar = 0.06f),
         Substance("gypsum_set", "Гипс застывший", P.SOLID, C.SOLID, 0xEDEAE2, density = 1100f, heatCapacity = 1090f,
@@ -59,7 +60,7 @@ object Substances {
             hotAt = 186f, hotTo = "caramel", hotLatent = 1.34e5f),
         Substance("sawdust", "Опилки", P.POWDER, C.POWDER, 0xCDA36C, density = 200f, heatCapacity = 1700f,
             conductivity = 0.08f, friction = 0.7f, porosity = 0.7f, fieldCapacity = 0.65f, permeability = 0.4f,
-            colorVar = 0.09f, flashPoint = 250f, autoIgnition = 300f, burnTime = 6f, burnHeat = 1.6e7f,
+            colorVar = 0.09f, flashPoint = 250f, autoIgnition = 300f, burnTime = 2f, burnHeat = 1.6e7f,
             burnTo = "ash", burnResidue = 0.3f, smoke = 0.15f, flameTemp = 900f, charAt = 300f, charTo = "charcoal", oxygenNeed = 1.4f, fineness = 0.5f),
         Substance("cement", "Цемент", P.POWDER, C.POWDER, 0xA5A8AA, density = 1440f, heatCapacity = 840f,
             conductivity = 0.3f, friction = 0.55f, porosity = 0.5f, fieldCapacity = 0.85f, permeability = 0.15f,
@@ -80,11 +81,11 @@ object Substances {
             coldAt = 0f, coldTo = "ice", coldLatent = 3.34e5f),
         Substance("oil", "Масло", P.LIQUID, C.LIQUID, 0xC9A227, density = 920f, heatCapacity = 2000f,
             conductivity = 0.17f, expansion = 7.2e-4f, alpha = 0.85f, colorVar = 0.02f, spread = 3,
-            viscosity = 0.3f, flashPoint = 315f, autoIgnition = 405f, burnTime = 180f, burnHeat = 3.7e7f,
+            viscosity = 0.3f, flashPoint = 315f, autoIgnition = 405f, burnTime = 20f, burnHeat = 3.7e7f,
             smoke = 0.25f, flameTemp = 1000f, oxygenNeed = 2.9f),
         Substance("alcohol", "Спирт", P.LIQUID, C.LIQUID, 0xCFEAF5, density = 789f, heatCapacity = 2440f,
             conductivity = 0.17f, expansion = 1.1e-3f, alpha = 0.35f, colorVar = 0.01f, spread = 6,
-            volatility = 7.5e-6f, flashPoint = 13f, autoIgnition = 363f, burnTime = 240f, burnHeat = 2.68e7f,
+            volatility = 7.5e-6f, flashPoint = 13f, autoIgnition = 363f, burnTime = 15f, burnHeat = 2.68e7f,
             smoke = 0f, flameTemp = 900f, oxygenNeed = 2.1f, hotAt = 78f, hotTo = "alcohol_vapor", hotLatent = 8.46e5f),
         Substance("glue", "Клей ПВА", P.LIQUID, C.LIQUID, 0xF2EFE6, density = 1100f, heatCapacity = 2900f,
             conductivity = 0.4f, alpha = 0.95f, colorVar = 0.01f, spread = 1, viscosity = 0.6f,
@@ -159,16 +160,16 @@ object Substances {
             "glued_$key", name, P.SOLID, C.SOLID, darken(b.color, 0.82f),
             density = b.density * 1.25f, heatCapacity = b.heatCapacity, conductivity = b.conductivity * 1.5f,
             colorVar = b.colorVar, inPalette = false,
-            flashPoint = b.flashPoint, autoIgnition = b.autoIgnition, burnTime = maxOf(b.burnTime * 10f, 120f),
+            flashPoint = b.flashPoint, autoIgnition = b.autoIgnition, burnTime = maxOf(b.burnTime * 4f, 20f),
             burnHeat = b.burnHeat, burnTo = b.burnTo, burnResidue = b.burnResidue, smoke = b.smoke,
             flameTemp = b.flameTemp, charAt = b.charAt, charTo = b.charTo, oxygenNeed = b.oxygenNeed,
-            fineness = b.fineness * 0.2f
+            fineness = b.fineness * 0.5f
         )
     }
 
     val solubility: List<Solubility> = listOf(
-        Solubility("salt", "water", sat20 = 0.36f, tempCoef = 0.0011f, time = 12f),
-        Solubility("sugar", "water", sat20 = 2.0f, tempCoef = 0.018f, time = 20f)
+        Solubility("salt", "water", sat20 = 0.36f, tempCoef = 0.0011f, time = 3f),
+        Solubility("sugar", "water", sat20 = 2.0f, tempCoef = 0.018f, time = 5f)
     )
 
     val all: List<Substance> = base + glued

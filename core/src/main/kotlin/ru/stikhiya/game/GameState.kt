@@ -21,7 +21,7 @@ class GameState {
     /** Ускорение медленных процессов: сушка, застывание клея, схватывание цемента. */
     val chemSpeeds = floatArrayOf(1f, 60f, 600f, 3600f)
     val chemNames = arrayOf("×1", "×60", "×600", "×3600")
-    var chemIndex = 1
+    var chemIndex = 2
 
     var view = ViewMode.NORMAL
 

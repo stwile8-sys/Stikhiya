@@ -9,7 +9,7 @@ package ru.stikhiya.sim
  * Быстрые (растворение, впитывание, горение) идут в реальном времени.
  */
 class Chemistry(private val w: World, private val air: Air) {
-    var chemSpeed = 60f
+    var chemSpeed = 600f
 
     private val burning = 2 // бит в flags: клетка горит
 
@@ -433,7 +433,8 @@ class Chemistry(private val w: World, private val air: Air) {
         }
         // угли и дерево сами раскалены; жидкость получает лишь малую долю тепла пламени
         val selfShare = if (Mat.isLiquid(id)) 0.02f else 0.3f
-        w.temp[i] += selfShare * e / w.heatCapacity(i)
+        // угли раскалены, но не горячее собственного пламени — лишнее уходит в пламя
+        w.temp[i] = minOf(w.temp[i] + selfShare * e / w.heatCapacity(i), maxOf(w.temp[i], Mat.flameTemp[id]))
 
         // пламя над горящей клеткой уносит остальное тепло
         val up = Neighbors.randomAir(w, i, preferUp = true)
@@ -493,8 +494,10 @@ class Chemistry(private val w: World, private val air: Air) {
             val j = Neighbors.at(w, i, d)
             if (j < 0) continue
             val tj = w.type[j].toInt()
-            val fire = tj == Mat.FLAME || ((w.flags[j].toInt() and burning) != 0 && Mat.flammable[tj])
-            if (fire && w.temp[j] > best) best = w.temp[j]
+            // язык пламени горяч, даже если клетка уже отдала тепло соседям
+            val t = if (tj == Mat.FLAME) maxOf(w.temp[j], 900f)
+                else if ((w.flags[j].toInt() and burning) != 0 && Mat.flammable[tj]) w.temp[j] else 0f
+            if (t > best) best = t
         }
         return best
     }
@@ -504,7 +507,7 @@ class Chemistry(private val w: World, private val air: Air) {
         if (w.temp[i] < Mat.charAt[id]) return
         if ((w.flags[i].toInt() and burning) != 0 && Neighbors.hasOxygen(w, i)) return
         if (Neighbors.hasOxygen(w, i)) return
-        w.cure[i] += Units.DT / 90f * (1f + (w.temp[i] - Mat.charAt[id]) / 100f)
+        w.cure[i] += Units.DT / 20f * (1f + (w.temp[i] - Mat.charAt[id]) / 100f)
         if (w.cure[i] >= 1f) {
             w.transform(i, Mat.charTo[id])
             w.amt[i] = 1f
