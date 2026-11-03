@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import ru.stikhiya.sim.Air
 import ru.stikhiya.sim.Mat
+import ru.stikhiya.sim.Parallel
 import ru.stikhiya.sim.Phase
 import ru.stikhiya.sim.Units
 import ru.stikhiya.sim.World
@@ -47,7 +48,19 @@ class WorldRenderer(private val w: World, private val air: Air) {
     fun update() {
         frame++
         val n = w.n
-        for (i in 0 until n) {
+        // каждая полоса красит свои клетки — считаем на всех ядрах
+        val bands = Parallel.bands
+        Parallel.forBands(bands) { b -> paint(Parallel.from(b, bands, n), Parallel.to(b, bands, n)) }
+        val buf = pixmap.pixels
+        buf.order(ByteOrder.BIG_ENDIAN)
+        buf.position(0)
+        buf.asIntBuffer().put(colors)
+        buf.position(0)
+        texture.draw(pixmap, 0, 0)
+    }
+
+    private fun paint(from: Int, to: Int) {
+        for (i in from until to) {
             colors[i] = when (mode) {
                 ViewMode.NORMAL -> normal(i)
                 ViewMode.TEMPERATURE -> temperature(i)
@@ -58,12 +71,6 @@ class WorldRenderer(private val w: World, private val air: Air) {
                 ViewMode.OXYGEN -> oxygen(i)
             }
         }
-        val buf = pixmap.pixels
-        buf.order(ByteOrder.BIG_ENDIAN)
-        buf.position(0)
-        buf.asIntBuffer().put(colors)
-        buf.position(0)
-        texture.draw(pixmap, 0, 0)
     }
 
     fun draw(batch: SpriteBatch, x: Float, y: Float, width: Float, height: Float) {
@@ -217,7 +224,8 @@ class WorldRenderer(private val w: World, private val air: Air) {
         val wx = air.windX(i)
         val wy = air.windY(i)
         val s = sqrt(wx * wx + wy * wy)
-        val v = s / (s + 1.5f)
+        // лёгкие сквозняки не раскрашиваем — видно только заметный ветер
+        val v = maxOf(0f, s - 0.1f) / (s + 1.5f)
         val hue = ((atan2(wy, wx) / (2f * Math.PI.toFloat())) + 1f) % 1f
         // оттенок по кругу цветов: вправо — красный, вниз — зелёный, влево — голубой, вверх — фиолетовый
         val h6 = hue * 6f

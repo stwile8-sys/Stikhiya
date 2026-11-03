@@ -126,7 +126,9 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         var steps = 0
         if (!st.paused) {
             acc += minOf(dt, 0.1f) * st.speeds[st.speedIndex]
-            while (acc >= Units.DT && steps < 2) { sim.step(); acc -= Units.DT; steps++ }
+            // тяжёлая сцена: лучше замедлить время, чем рвать картинку
+            val maxSteps = if (simMs > 10f) 1 else 2
+            while (acc >= Units.DT && steps < maxSteps) { sim.step(); acc -= Units.DT; steps++ }
             if (acc > Units.DT * 2) acc = 0f // телефон не успевает — замедляем время, а не копим долг
         } else if (st.stepRequested) {
             sim.step(); steps = 1

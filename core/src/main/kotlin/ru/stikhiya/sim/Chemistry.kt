@@ -393,8 +393,10 @@ class Chemistry(private val w: World, private val air: Air) {
         val isBurning = (f and burning) != 0
         // порох несёт окислитель в себе и горит даже засыпанным
         val selfOx = Mat.oxygenNeed[id] <= 0f
-        val o2 = if (selfOx) Air.O2_NORMAL else air.oxygen(i)
-        val contact = selfOx || Neighbors.hasOxygen(w, i)
+        // кислород приходит из соседней клетки с воздухом, а не из самого топлива
+        val src = if (selfOx) i else breathableNeighbor(i)
+        val contact = selfOx || src >= 0
+        val o2 = if (selfOx) Air.O2_NORMAL else if (src >= 0) air.oxygen(src) else 0f
         if (!isBurning) {
             if (!contact || o2 < Air.O2_FLAME_MIN + 0.01f) return
             // мокрое не загорается: вода в порах забирает тепло (сырой порох, сырые опилки)
@@ -421,7 +423,7 @@ class Chemistry(private val w: World, private val air: Air) {
         val e = Mat.burnHeat[id] * burned
         w.burn[i] += dp
         // кислород уходит из воздуха; продукты горения уносит и разбавляет поток над огнём
-        if (!selfOx) air.consumeOxygen(i, burned * Mat.oxygenNeed[id])
+        if (!selfOx) air.consumeOxygen(src, burned * Mat.oxygenNeed[id])
         val gy = Mat.gasYield[id]
         if (gy > 0f) {
             // газы взрыва распирают воздух: объём при температуре пламени → давление
@@ -472,6 +474,16 @@ class Chemistry(private val w: World, private val air: Air) {
             if (Neighbors.breathable(w.type[j].toInt())) c++
         }
         return maxOf(c, 1)
+    }
+
+    /** Соседняя клетка, через которую поступает воздух (−1 — нет доступа). */
+    private fun breathableNeighbor(i: Int): Int {
+        val s = w.rndInt(4)
+        for (k in 0 until 4) {
+            val j = Neighbors.at(w, i, (s + k) and 3)
+            if (j >= 0 && Neighbors.breathable(w.type[j].toInt())) return j
+        }
+        return -1
     }
 
     /** Температура самого горячего пламени или горящей клетки рядом; 0 — огня рядом нет. */

@@ -22,9 +22,23 @@ class Heat(private val w: World, private val air: Air) {
     }
 
     private fun prepare() {
+        val bands = Parallel.bands
+        Parallel.forBands(bands) { b -> prepareRange(Parallel.from(b, bands, n), Parallel.to(b, bands, n)) }
+    }
+
+    private fun prepareRange(from: Int, to: Int) {
         val type = w.type
-        for (i in 0 until n) {
+        val temp = w.temp
+        val airC = Units.P_ATM * Units.AIR_MOLAR / Units.R_GAS * Units.VOL * Mat.heatCap[Mat.AIR]
+        for (i in from until to) {
             val id = type[i].toInt()
+            if (id == Mat.AIR) {
+                // воздух — самый частый случай, считаем без лишних вызовов
+                cap[i] = airC / maxOf(temp[i] + Units.KELVIN, 1f)
+                kind[i] = 0
+                k[i] = Mat.cond[Mat.AIR]
+                continue
+            }
             cap[i] = w.heatCapacity(i)
             val ph = Mat.phase[id]
             kind[i] = when {
@@ -42,16 +56,44 @@ class Heat(private val w: World, private val air: Air) {
         }
     }
 
+    /**
+     * Теплопроводность в три прохода, каждый — параллельно по полосам:
+     * пары соседей в строке, затем пары строк (чётная + следующая), затем (нечётная + следующая).
+     * В одном проходе разные полосы не трогают одни и те же клетки.
+     */
     private fun conduct() {
-        val ww = w.w
         val hh = w.h
-        for (y in 0 until hh) {
-            val row = y * ww
-            for (x in 0 until ww) {
-                val i = row + x
-                if (x + 1 < ww) exchange(i, i + 1)
-                if (y + 1 < hh) exchange(i, i + ww)
-            }
+        val bands = Parallel.bands
+        Parallel.forBands(bands) { b -> for (y in Parallel.from(b, bands, hh) until Parallel.to(b, bands, hh)) rowPairs(y) }
+        val pairs = hh / 2
+        Parallel.forBands(bands) { b -> for (p in Parallel.from(b, bands, pairs) until Parallel.to(b, bands, pairs)) columnPairs(p * 2) }
+        val pairsOdd = (hh - 1) / 2
+        Parallel.forBands(bands) { b -> for (p in Parallel.from(b, bands, pairsOdd) until Parallel.to(b, bands, pairsOdd)) columnPairs(p * 2 + 1) }
+    }
+
+    // между двумя клетками воздуха тепло переносит движение воздуха, а не теплопроводность
+    private fun rowPairs(y: Int) {
+        val ww = w.w
+        val type = w.type
+        val air = Mat.AIR.toShort()
+        val row = y * ww
+        for (x in 0 until ww - 1) {
+            val i = row + x
+            if (type[i] == air && type[i + 1] == air) continue
+            exchange(i, i + 1)
+        }
+    }
+
+    private fun columnPairs(y: Int) {
+        if (y + 1 >= w.h) return
+        val ww = w.w
+        val type = w.type
+        val air = Mat.AIR.toShort()
+        val row = y * ww
+        for (x in 0 until ww) {
+            val i = row + x
+            if (type[i] == air && type[i + ww] == air) continue
+            exchange(i, i + ww)
         }
     }
 

@@ -23,6 +23,7 @@ class Air(private val w: World) {
     val blocked = BooleanArray(an)
 
     private val avgT = FloatArray(an)
+    private val dev = FloatArray(an)
     private val fluidFrac = FloatArray(an)
     private val fanX = FloatArray(an)
     private val fanY = FloatArray(an)
@@ -68,8 +69,15 @@ class Air(private val w: World) {
     private fun scan() {
         avgT.fill(0f); fluidFrac.fill(0f); fanX.fill(0f); fanY.fill(0f)
         solidCount.fill(0); denseCount.fill(0)
+        // каждая полоса — свои строки клеток воздуха, пересечений нет
+        val bands = minOf(Parallel.bands, ah)
+        Parallel.forBands(bands) { b -> scanRows(Parallel.from(b, bands, ah), Parallel.to(b, bands, ah)) }
+        finishScan()
+    }
+
+    private fun scanRows(ay0: Int, ay1: Int) {
         val ww = w.w
-        for (y in 0 until w.h) {
+        for (y in ay0 * cs until minOf(ay1 * cs, w.h)) {
             val row = (y / cs) * aw
             for (x in 0 until ww) {
                 val i = y * ww + x
@@ -88,6 +96,9 @@ class Air(private val w: World) {
                 }
             }
         }
+    }
+
+    private fun finishScan() {
         val total = (cs * cs).toFloat()
         for (c in 0 until an) {
             // стена толщиной в одну клетку уже перекрывает воздух; рыхлый завал — только плотный
@@ -115,12 +126,32 @@ class Air(private val w: World) {
         }
     }
 
-    /** Горячий воздух легче холодного: сила Архимеда, a = g·ΔT/T. */
+    /**
+     * Горячий воздух легче окружающего: сила Архимеда, a = g·ΔT/T.
+     * ΔT — разница с соседним воздухом на той же высоте: равномерно тёплая комната не «кипит».
+     */
     private fun buoyancy() {
+        val r = 6
+        for (y in 0 until ah) {
+            val row = y * aw
+            // скользящее среднее по строке
+            var sum = 0f
+            var cnt = 0
+            for (x in 0..minOf(r, aw - 1)) if (!blocked[row + x]) { sum += avgT[row + x]; cnt++ }
+            for (x in 0 until aw) {
+                val c = row + x
+                dev[c] = if (cnt > 0 && !blocked[c]) avgT[c] - sum / cnt else 0f
+                val add = x + r + 1
+                if (add < aw && !blocked[row + add]) { sum += avgT[row + add]; cnt++ }
+                val rem = x - r
+                if (rem >= 0 && !blocked[row + rem]) { sum -= avgT[row + rem]; cnt-- }
+            }
+        }
         for (c in aw until an) {
             if (blocked[c] || blocked[c - aw]) continue
             val t = (avgT[c] + avgT[c - aw]) * 0.5f
-            val a = Units.GRAVITY * (t - Units.AMBIENT) / (t + Units.KELVIN)
+            val d = (dev[c] + dev[c - aw]) * 0.5f
+            val a = Units.GRAVITY * d / (t + Units.KELVIN)
             vy[c - aw] -= a * Units.DT * BUOYANCY
         }
     }
@@ -182,13 +213,16 @@ class Air(private val w: World) {
                 if (y < ah - 1 && !blocked[c + aw]) { sVx += tVx[c + aw]; sVy += tVy[c + aw]; sO += tO2[c + aw]; sP += tP[c + aw]; n++ }
                 if (n > 0) {
                     val inv = 1f / n
-                    vx[c] = tVx[c] * 0.85f + sVx * inv * 0.15f
-                    vy[c] = tVy[c] * 0.85f + sVy * inv * 0.15f
+                    vx[c] = tVx[c] * 0.75f + sVx * inv * 0.25f
+                    vy[c] = tVy[c] * 0.75f + sVy * inv * 0.25f
                     o2[c] = tO2[c] * 0.75f + sO * inv * 0.25f   // кислород быстро перемешивается
-                    pv[c] = tP[c] * 0.9f + sP * inv * 0.1f
+                    pv[c] = tP[c] * 0.85f + sP * inv * 0.15f
                 } else {
                     vx[c] = tVx[c]; vy[c] = tVy[c]; o2[c] = tO2[c]
                 }
+                // слабые остатки движения гасим, чтобы воздух успокаивался
+                if (abs(vx[c]) < 0.01f) vx[c] = 0f
+                if (abs(vy[c]) < 0.01f) vy[c] = 0f
             }
         }
     }
@@ -209,13 +243,19 @@ class Air(private val w: World) {
 
     /** Ветер уносит тепло: температура воздуха в мелких клетках переносится по течению. */
     private fun advectHeat() {
+        System.arraycopy(w.temp, 0, tT, 0, w.n)
+        val bands = minOf(Parallel.bands, ah)
+        Parallel.forBands(bands) { b -> advectHeatCells(Parallel.from(b, bands, an), Parallel.to(b, bands, an)) }
+    }
+
+    /** Каждая клетка воздуха меняет только свои 16 мелких клеток — полосы не пересекаются. */
+    private fun advectHeatCells(c0: Int, c1: Int) {
         val ww = w.w
         val hh = w.h
         val type = w.type
         val temp = w.temp
-        System.arraycopy(temp, 0, tT, 0, w.n)
         // обходим клетками воздуха: в штиль пропускаем сразу 16 мелких клеток
-        for (c in 0 until an) {
+        for (c in c0 until c1) {
             val ux = vx[c] * cellsPerTick
             val uy = vy[c] * cellsPerTick
             if (abs(ux) + abs(uy) < 0.15f || blocked[c]) continue
@@ -225,8 +265,8 @@ class Air(private val w: World) {
                 for (x in x0 until minOf(x0 + cs, ww)) {
                     val i = y * ww + x
                     if (type[i].toInt() != Mat.AIR) continue
-                    val sx = (x - stoch(ux.coerceIn(-3f, 3f))).coerceIn(0, ww - 1)
-                    val sy = (y - stoch(uy.coerceIn(-3f, 3f))).coerceIn(0, hh - 1)
+                    val sx = (x - stoch(ux.coerceIn(-3f, 3f), i)).coerceIn(0, ww - 1)
+                    val sy = (y - stoch(uy.coerceIn(-3f, 3f), i + 7919)).coerceIn(0, hh - 1)
                     val j = sy * ww + sx
                     if (type[j].toInt() == Mat.AIR) temp[i] = tT[j]
                 }
@@ -234,10 +274,14 @@ class Air(private val w: World) {
         }
     }
 
-    private fun stoch(v: Float): Int {
+    /** Случайное округление; случайность — из номера клетки и шага, чтобы не делить генератор между потоками. */
+    private fun stoch(v: Float, salt: Int): Int {
         val f = if (v >= 0f) v.toInt() else -((-v).toInt())
         val r = v - f
-        return f + if (r > 0f && w.rnd() < r) 1 else if (r < 0f && w.rnd() < -r) -1 else 0
+        var h = salt * -0x61c88647 + tick * 0x27d4eb2d
+        h = h xor (h ushr 15); h *= 0x2c1b3c6d; h = h xor (h ushr 12)
+        val u = (h ushr 8) * (1f / 16777216f)
+        return f + if (r > 0f && u < r) 1 else if (r < 0f && u < -r) -1 else 0
     }
 
     /**
@@ -387,6 +431,6 @@ class Air(private val w: World) {
         const val V_LOSS = 0.99f
         const val P_MIN = -100f
         const val P_MAX = 400f
-        const val V_MAX = 60f
+        const val V_MAX = 30f
     }
 }
