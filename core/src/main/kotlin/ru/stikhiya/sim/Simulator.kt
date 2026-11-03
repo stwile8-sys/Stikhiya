@@ -6,6 +6,7 @@ class Simulator(val world: World) {
     val heat = Heat(world, air)
     val motion = Motion(world, air)
     val chemistry = Chemistry(world, air)
+    val bodies = Bodies(world, air)
     var tick = 0
         private set
 
@@ -21,10 +22,12 @@ class Simulator(val world: World) {
         heat.step()
         chemistry.step()
         air.step()
+        bodies.step()
         motion.step(tick)
     }
 
     fun clear() {
+        bodies.clear()
         world.clear()
         air.clear()
     }
@@ -46,7 +49,8 @@ enum class Tool(val title: String, val inPanel: Boolean = true) {
 
 /** Инструменты игрока: рисование веществом, ластик, нагрев, охлаждение, перемешивание. */
 object Brush {
-    fun apply(w: World, tool: Tool, substance: Int, cx: Int, cy: Int, r: Int) {
+    /** rec — сюда записываются нарисованные твёрдые клетки (из них потом делаются тела). */
+    fun apply(w: World, tool: Tool, substance: Int, cx: Int, cy: Int, r: Int, rec: IntList? = null) {
         if (tool == Tool.HAND || tool == Tool.INSPECT || !tool.inPanel) return
         val r2 = r * r + r
         for (dy in -r..r) {
@@ -57,7 +61,7 @@ object Brush {
                 if (!w.inside(x, y)) continue
                 val i = w.idx(x, y)
                 when (tool) {
-                    Tool.DRAW -> draw(w, i, substance)
+                    Tool.DRAW -> if (draw(w, i, substance) && rec != null && Mat.isSolid(substance)) rec.add(i)
                     Tool.ERASE -> if (w.type[i].toInt() != Mat.AIR) w.toAir(i)
                     Tool.HEAT -> heatCell(w, i, 15f)
                     Tool.COOL -> heatCell(w, i, -15f)
@@ -68,16 +72,17 @@ object Brush {
         }
     }
 
-    private fun draw(w: World, i: Int, id: Int) {
-        if (w.type[i].toInt() != Mat.AIR) return
+    private fun draw(w: World, i: Int, id: Int): Boolean {
+        if (w.type[i].toInt() != Mat.AIR) return false
         // порошки сыплются неплотно — так естественнее
-        if (Mat.isPowder(id) && w.rnd() < 0.35f) return
-        if (Mat.isGas(id) && id != Mat.FLAME && w.rnd() < 0.5f) return
+        if (Mat.isPowder(id) && w.rnd() < 0.35f) return false
+        if (Mat.isGas(id) && id != Mat.FLAME && w.rnd() < 0.5f) return false
         val t = w.temp[i]
         w.put(i, id)
-        if (id == Mat.FLAME) { w.amt[i] = 6f; return }
+        if (id == Mat.FLAME) { w.amt[i] = 6f; return true }
         // газы рисуются при своей температуре, а если она не задана — при температуре воздуха
         if (Mat.isGas(id) && Mat[id].spawnTemp == Units.AMBIENT) w.temp[i] = t
+        return true
     }
 
     /** Нагрев/охлаждение: мощность ~ 1 кВт/см³ — паяльная лампа в миниатюре. */

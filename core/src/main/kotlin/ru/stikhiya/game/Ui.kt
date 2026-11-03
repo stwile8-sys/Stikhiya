@@ -97,13 +97,18 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         val rx = width - side + pad
         val rw = side - 2 * pad
         y = 4f * u
-        buttons += Button(Rect(rx, y, rw, bh), { if (st.paused) "Пуск" else "Пауза" }, null, { st.paused }) {
+        val rbh = 34f * u
+        buttons += Button(Rect(rx, y, rw, rbh), { if (st.paused) "Пуск" else "Пауза" }, null, { st.paused }) {
             st.paused = !st.paused
         }
-        y += bh + 2f * u
-        buttons += Button(Rect(rx, y, rw, bh), { "Шаг" }) { st.paused = true; st.stepRequested = true }
-        y += bh + 2f * u
-        val bh2 = 46f * u
+        y += rbh + 2f * u
+        buttons += Button(Rect(rx, y, rw, rbh), { "Шаг" }) { st.paused = true; st.stepRequested = true }
+        y += rbh + 2f * u
+        val bh2 = 40f * u
+        buttons += Button(Rect(rx, y, rw, bh2), { "Твёрдое" }, { if (st.solidFalls) "падает" else "стоит" }) {
+            st.solidFalls = !st.solidFalls
+        }
+        y += bh2 + 2f * u
         buttons += Button(Rect(rx, y, rw, bh2), { "Время" }, { st.speedNames[st.speedIndex] }) {
             st.speedIndex = (st.speedIndex + 1) % st.speeds.size
         }
@@ -116,7 +121,7 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
             st.view = ViewMode.values()[(st.view.ordinal + 1) % ViewMode.values().size]
         }
         y += bh2 + 2f * u
-        buttons += Button(Rect(rx, y, rw, bh), {
+        buttons += Button(Rect(rx, y, rw, rbh), {
             if (System.currentTimeMillis() < st.clearArmedUntil) "Точно?" else "Очистить"
         }, null, { System.currentTimeMillis() < st.clearArmedUntil }) {
             val now = System.currentTimeMillis()

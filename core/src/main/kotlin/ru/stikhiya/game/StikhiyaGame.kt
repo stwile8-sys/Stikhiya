@@ -10,6 +10,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import ru.stikhiya.sim.Brush
+import ru.stikhiya.sim.IntList
 import ru.stikhiya.sim.Mat
 import ru.stikhiya.sim.Simulator
 import ru.stikhiya.sim.Tool
@@ -48,6 +49,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
 
     // касания
     private var drawPointer = -1
+    private val stroke = IntList(1024) // твёрдые клетки текущего мазка
     private var lastCellX = 0f
     private var lastCellY = 0f
     private var curScreenX = 0f
@@ -212,7 +214,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             val f = k / n.toFloat()
             val x = lastCellX + (cx - lastCellX) * f
             val y = lastCellY + (cy - lastCellY) * f
-            Brush.apply(world, st.tool, st.substance, x.toInt(), y.toInt(), st.brush)
+            val rec = if (st.tool == Tool.DRAW && st.solidFalls && Mat.isSolid(st.substance)) stroke else null
+            Brush.apply(world, st.tool, st.substance, x.toInt(), y.toInt(), st.brush, rec)
         }
         lastCellX = cx
         lastCellY = cy
@@ -256,6 +259,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         val s = Mat[id]
         val sb = StringBuilder()
         sb.append(s.name)
+        val own = world.owner[i].toInt()
+        if (own != 0) sim.bodies.get(own)?.let { sb.append(" — тело, ${f0(it.mass * 1000f)} г") }
         if (sim.chemistry.isBurning(i) && Mat.flammable[id]) sb.append(" — горит, сгорело ${pct(world.burn[i])}")
         sb.append('\n').append("Температура ${f1(world.temp[i])} °C")
         sb.append('\n').append("Плотность ${f0(world.cellDensity(i))} кг/м³")
@@ -317,6 +322,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             val down = pointerDown.count { it }
             if (down >= 2) {
                 // второй палец — масштаб, рисование и перетаскивание отменяются
+                finishStroke()
                 drawPointer = -1
                 panPointer = -1
                 startPinch()
@@ -358,7 +364,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             if (pointer >= 10) return false
             pointerDown[pointer] = false
             ui.touchUp(screenX.toFloat(), screenY.toFloat(), pointer)
-            if (pointer == drawPointer) drawPointer = -1
+            if (pointer == drawPointer) { finishStroke(); drawPointer = -1 }
             if (pointer == panPointer) panPointer = -1
             if (pinching && pointerDown.count { it } < 2) pinching = false
             return true
@@ -367,6 +373,14 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         override fun keyDown(keycode: Int): Boolean {
             if (keycode == Input.Keys.BACK) { st.paused = !st.paused; return true }
             return false
+        }
+    }
+
+    /** Мазок закончен: нарисованное твёрдое становится телами и начинает падать. */
+    private fun finishStroke() {
+        if (stroke.n > 0) {
+            sim.bodies.create(stroke)
+            stroke.clear()
         }
     }
 

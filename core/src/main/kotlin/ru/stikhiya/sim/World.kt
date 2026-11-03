@@ -23,6 +23,7 @@ class World(val w: Int, val h: Int) {
     val shade = ByteArray(n)        // оттенок зерна
     val flags = ByteArray(n)        // бит 0 — направление растекания
     val stamp = IntArray(n)         // номер тика, в котором клетка уже двигалась
+    val owner = ShortArray(n)       // номер твёрдого тела + 1, если клетка принадлежит телу
 
     var seed = 0x2545F491
 
@@ -32,7 +33,7 @@ class World(val w: Int, val h: Int) {
     fun clear() {
         type.fill(0); temp.fill(Units.AMBIENT); vy.fill(0f); amt.fill(1f)
         mixId.fill(0); mix.fill(0f); latent.fill(0f); cure.fill(0f); burn.fill(0f)
-        life.fill(0f); flags.fill(0); stamp.fill(0)
+        life.fill(0f); flags.fill(0); stamp.fill(0); owner.fill(0)
     }
 
     /** Поставить вещество в клетку (все прочие свойства сбрасываются). */
@@ -144,6 +145,7 @@ class World(val w: Int, val h: Int) {
         val f8 = life[a]; life[a] = life[b]; life[b] = f8
         val b1 = shade[a]; shade[a] = shade[b]; shade[b] = b1
         val b2 = flags[a]; flags[a] = flags[b]; flags[b] = b2
+        val o = owner[a]; owner[a] = owner[b]; owner[b] = o
     }
 
     // --- быстрый генератор случайных чисел (xorshift) ---
