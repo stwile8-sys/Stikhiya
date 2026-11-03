@@ -150,8 +150,8 @@ class Air(private val w: World) {
         for (c in aw until an) {
             if (blocked[c] || blocked[c - aw]) continue
             val t = (avgT[c] + avgT[c - aw]) * 0.5f
-            val d = (dev[c] + dev[c - aw]) * 0.5f
-            val a = Units.GRAVITY * d / (t + Units.KELVIN)
+            val d = ((dev[c] + dev[c - aw]) * 0.5f).coerceIn(-400f, 400f)
+            val a = (Units.GRAVITY * d / maxOf(t + Units.KELVIN, 100f)).coerceIn(-5f, 5f)
             vy[c - aw] -= a * Units.DT * BUOYANCY
         }
     }
@@ -213,16 +213,18 @@ class Air(private val w: World) {
                 if (y < ah - 1 && !blocked[c + aw]) { sVx += tVx[c + aw]; sVy += tVy[c + aw]; sO += tO2[c + aw]; sP += tP[c + aw]; n++ }
                 if (n > 0) {
                     val inv = 1f / n
-                    vx[c] = tVx[c] * 0.75f + sVx * inv * 0.25f
-                    vy[c] = tVy[c] * 0.75f + sVy * inv * 0.25f
+                    vx[c] = tVx[c] * 0.65f + sVx * inv * 0.35f
+                    vy[c] = tVy[c] * 0.65f + sVy * inv * 0.35f
                     o2[c] = tO2[c] * 0.75f + sO * inv * 0.25f   // кислород быстро перемешивается
-                    pv[c] = tP[c] * 0.85f + sP * inv * 0.15f
+                    pv[c] = tP[c] * 0.8f + sP * inv * 0.2f
                 } else {
                     vx[c] = tVx[c]; vy[c] = tVy[c]; o2[c] = tO2[c]
                 }
-                // слабые остатки движения гасим, чтобы воздух успокаивался
-                if (abs(vx[c]) < 0.01f) vx[c] = 0f
-                if (abs(vy[c]) < 0.01f) vy[c] = 0f
+                // слабые остатки движения гасим, чтобы воздух успокаивался; битые числа сбрасываем
+                if (abs(vx[c]) < 0.03f || !vx[c].isFinite()) vx[c] = 0f
+                if (abs(vy[c]) < 0.03f || !vy[c].isFinite()) vy[c] = 0f
+                if (!pv[c].isFinite()) pv[c] = 0f
+                if (!o2[c].isFinite()) o2[c] = O2_NORMAL
             }
         }
     }
@@ -265,23 +267,33 @@ class Air(private val w: World) {
                 for (x in x0 until minOf(x0 + cs, ww)) {
                     val i = y * ww + x
                     if (type[i].toInt() != Mat.AIR) continue
-                    val sx = (x - stoch(ux.coerceIn(-3f, 3f), i)).coerceIn(0, ww - 1)
-                    val sy = (y - stoch(uy.coerceIn(-3f, 3f), i + 7919)).coerceIn(0, hh - 1)
-                    val j = sy * ww + sx
-                    if (type[j].toInt() == Mat.AIR) temp[i] = tT[j]
+                    // откуда пришёл воздух; смешиваем четыре соседние клетки воздуха плавно, без случайного шума
+                    val sx = (x - ux.coerceIn(-3f, 3f)).coerceIn(0f, (ww - 1).toFloat())
+                    val sy = (y - uy.coerceIn(-3f, 3f)).coerceIn(0f, (hh - 1).toFloat())
+                    val ix = sx.toInt()
+                    val iy = sy.toInt()
+                    val fx = sx - ix
+                    val fy = sy - iy
+                    val ix1 = minOf(ix + 1, ww - 1)
+                    val iy1 = minOf(iy + 1, hh - 1)
+                    var sum = 0f
+                    var wsum = 0f
+                    val j00 = iy * ww + ix
+                    val j10 = iy * ww + ix1
+                    val j01 = iy1 * ww + ix
+                    val j11 = iy1 * ww + ix1
+                    val w00 = (1 - fx) * (1 - fy)
+                    val w10 = fx * (1 - fy)
+                    val w01 = (1 - fx) * fy
+                    val w11 = fx * fy
+                    if (type[j00].toInt() == Mat.AIR) { sum += tT[j00] * w00; wsum += w00 }
+                    if (type[j10].toInt() == Mat.AIR) { sum += tT[j10] * w10; wsum += w10 }
+                    if (type[j01].toInt() == Mat.AIR) { sum += tT[j01] * w01; wsum += w01 }
+                    if (type[j11].toInt() == Mat.AIR) { sum += tT[j11] * w11; wsum += w11 }
+                    if (wsum > 0.05f) temp[i] = sum / wsum
                 }
             }
         }
-    }
-
-    /** Случайное округление; случайность — из номера клетки и шага, чтобы не делить генератор между потоками. */
-    private fun stoch(v: Float, salt: Int): Int {
-        val f = if (v >= 0f) v.toInt() else -((-v).toInt())
-        val r = v - f
-        var h = salt * -0x61c88647 + tick * 0x27d4eb2d
-        h = h xor (h ushr 15); h *= 0x2c1b3c6d; h = h xor (h ushr 12)
-        val u = (h ushr 8) * (1f / 16777216f)
-        return f + if (r > 0f && u < r) 1 else if (r < 0f && u < -r) -1 else 0
     }
 
     /**
@@ -440,8 +452,8 @@ class Air(private val w: World) {
         const val BUOYANCY = 0.35f
         const val K_P = 0.3f
         const val K_V = 0.4f
-        const val P_LOSS = 0.995f
-        const val V_LOSS = 0.99f
+        const val P_LOSS = 0.99f
+        const val V_LOSS = 0.97f         // порыв ветра стихает за 1–2 секунды
         const val P_MIN = -100f
         const val P_MAX = 400f
         const val V_MAX = 30f
