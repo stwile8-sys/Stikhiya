@@ -55,6 +55,8 @@ class RigidBody(val id: Int, val lw: Int, val lh: Int) {
 const val B = 0.1f
 val BOX_G = Units.GRAVITY / Units.CELL * B          // ускорение свободного падения в единицах Box2D
 const val BOX_FORCE = B / Units.CELL                 // Н → сила Box2D (масса та же, ускорение ×10)
+/** Сколько силы одна клетка песка под телом выдерживает при ударе (≈ 40 кПа на 1 см²). */
+const val POWDER_STOP_FORCE = 4f * BOX_FORCE
 
 class Bodies(private val w: World, private val air: Air) {
     val physics = B2World(Vec2(0f, BOX_G))
@@ -302,15 +304,18 @@ class Bodies(private val w: World, private val air: Air) {
         }
         // точнее — по ватерлинии: уровень жидкости в столбцах слева и справа от тела.
         // Вода, вытесненная телу на макушку, на плавучесть не влияет.
+        var subF = submerged.toFloat()
         if (submerged > 0 && waterLevel(rb)) {
-            submerged = 0; wcx = 0f; wcy = 0f
+            // доля каждой клетки ниже уровня воды (уровень дробный — усреднён по столбцам)
+            subF = 0f; wcx = 0f; wcy = 0f
             for (k in 0 until rb.stamped.n) {
                 val i = rb.stamped.a[k]
                 if (w.owner[i] != id) continue
                 val y = i / ww
-                if (y >= levelY) { submerged++; wcx += i % ww; wcy += y }
+                val part = (y + 1f - levelY).coerceIn(0f, 1f)
+                if (part > 0f) { subF += part; wcx += (i % ww) * part; wcy += (y + 1f - part * 0.5f - 0.5f) * part }
             }
-            wetDensity = levelRho * submerged
+            wetDensity = levelRho * subF
         }
         val body = rb.body
         if (fx != 0f || fy != 0f) {
@@ -318,21 +323,24 @@ class Bodies(private val w: World, private val air: Air) {
         }
         // плавучесть: вес вытесненной жидкости, приложенный в центре подводной части
         // доля под водой сглажена: тело не дёргается от перескоков уровня на одну клетку
-        val frac = if (rb.count > 0) submerged.toFloat() / rb.count else 0f
-        rb.wetFraction += (frac - rb.wetFraction) * 0.35f
-        if (submerged > 0) {
-            val rho = wetDensity / submerged
+        val frac = if (rb.count > 0) subF / rb.count else 0f
+        rb.wetFraction += (frac - rb.wetFraction) * 0.7f
+        if (subF > 0.01f) {
+            val rho = wetDensity / subF
             val fb = rb.wetFraction * rb.count * Units.VOL * rho * Units.GRAVITY * BOX_FORCE
             v1.set(0f, -fb)
-            v2.set((wcx / submerged + 0.5f) * B, (wcy / submerged + 0.5f) * B)
+            v2.set((wcx / subF + 0.5f) * B, (wcy / subF + 0.5f) * B)
             body.applyForce(v1, v2)
-            // сопротивление воды: тело покачается и успокоится, а не выпрыгнет
-            val damp = 1f - 0.12f * rb.wetFraction
+            // сопротивление воды: лёгкое тело тормозит сильно, тяжёлое (бетон, железо) пробивает воду
+            val bodyRho = body.mass / (rb.count * Units.VOL)
+            val ratio = (rho / bodyRho).coerceIn(0.05f, 3f)
+            val lin = minOf(0.5f, 0.15f * ratio * rb.wetFraction)
             val lv = body.linearVelocity
-            v3.set(lv.x * damp, lv.y * (1f - 0.18f * rb.wetFraction))
+            v3.set(lv.x * (1f - lin), lv.y * (1f - minOf(0.6f, lin * 1.4f)))
             body.linearVelocity = v3
-            body.angularVelocity = body.angularVelocity * (1f - 0.2f * rb.wetFraction)
+            body.angularVelocity = body.angularVelocity * (1f - minOf(0.5f, 0.2f * ratio * rb.wetFraction))
         }
+        airDrag(rb)
         // опора на песке и других порошках: гасим падение в точках касания
         if (contactN > 0) {
             val share = powderBottom.toFloat() / (powderBottom + solidBottom)
@@ -341,7 +349,9 @@ class Bodies(private val w: World, private val air: Air) {
                 v2.set(contactX[c] * B, contactY[c] * B)
                 body.getLinearVelocityFromWorldPointToOut(v2, v3)
                 if (v3.y < -1f) continue // летит вверх — опора не нужна
-                val fyc = -m * (BOX_G * share + maxOf(0f, v3.y) / Units.DT * 0.9f)
+                // песок держит вес, но удар гасит не сразу: тяжёлое тело проминает его глубже
+                val stop = minOf(m * maxOf(0f, v3.y) / Units.DT * 0.9f, POWDER_STOP_FORCE)
+                val fyc = -(m * BOX_G * share + stop)
                 val fxc = -m * v3.x / Units.DT * 0.15f
                 v1.set(fxc, fyc)
                 body.applyForce(v1, v2)
@@ -349,8 +359,26 @@ class Bodies(private val w: World, private val air: Air) {
         }
     }
 
-    private var levelY = 0
+    private var levelY = 0f
     private var levelRho = 0f
+
+    /**
+     * Сопротивление воздуха: заметно только для маленьких лёгких кусков.
+     * Бревно и бетон падают одинаково быстро — как в жизни.
+     */
+    private fun airDrag(rb: RigidBody) {
+        val body = rb.body
+        val lv = body.linearVelocity
+        val vx = lv.x / B * Units.CELL   // м/с
+        val vy = lv.y / B * Units.CELL
+        val v2 = vx * vx + vy * vy
+        if (v2 < 1f) return
+        val v = kotlin.math.sqrt(v2)
+        val area = kotlin.math.sqrt(rb.count.toFloat()) * Units.AREA     // лобовая площадь, м²
+        val f = 0.5f * 1.2f * 1.0f * area * v2 * BOX_FORCE              // Н → Box2D
+        v1.set(-vx / v * f, -vy / v * f)
+        body.applyForceToCenter(v1)
+    }
 
     /** Найти уровень жидкости рядом с телом (в levelY/levelRho). false — рядом нет открытой жидкости. */
     private fun waterLevel(rb: RigidBody): Boolean {
@@ -362,26 +390,28 @@ class Bodies(private val w: World, private val air: Air) {
             if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y
         }
         if (x1 < 0) return false
-        var sum = 0; var n = 0; var rho = 0f
+        var sum = 0f; var n = 0; var rho = 0f
         for (side in 0 until 2) {
-            val cx = if (side == 0) x0 - 3 else x1 + 3
-            if (cx < 0 || cx >= ww) continue
-            val yTop = maxOf(0, y0 - 40)
-            val yBot = minOf(w.h - 1, y1 + 2)
-            for (y in yTop..yBot) {
-                val j = y * ww + cx
-                val t = w.type[j].toInt()
-                if (Mat.isLiquid(t) && w.owner[j].toInt() == 0) {
-                    // поверхность: под ней ещё жидкость (не случайная капля)
-                    val below = j + ww
-                    if (y + 1 < w.h && !Mat.isLiquid(w.type[below].toInt())) continue
-                    sum += y; n++; rho += w.cellDensity(j)
-                    break
+            for (off in 6..14) {
+                val cx = if (side == 0) x0 - off else x1 + off
+                if (cx < 0 || cx >= ww) continue
+                val yTop = maxOf(0, y0 - 40)
+                val yBot = minOf(w.h - 1, y1 + 2)
+                for (y in yTop..yBot) {
+                    val j = y * ww + cx
+                    val t = w.type[j].toInt()
+                    if (Mat.isLiquid(t) && w.owner[j].toInt() == 0) {
+                        // поверхность: под ней ещё жидкость (не случайная капля)
+                        if (y + 1 < w.h && !Mat.isLiquid(w.type[j + ww].toInt())) continue
+                        // неполная верхняя клетка поднимает уровень на свою долю
+                        sum += y + (1f - w.amt[j]); n++; rho += w.cellDensity(j)
+                        break
+                    }
                 }
             }
         }
         if (n == 0) return false
-        levelY = (sum + n / 2) / n
+        levelY = sum / n
         levelRho = rho / n
         return true
     }
@@ -443,6 +473,7 @@ class Bodies(private val w: World, private val air: Air) {
         val y0 = max(0, floor((pos.y - ey) / B).toInt() - 1)
         val y1 = min(w.h - 1, floor((pos.y + ey) / B).toInt() + 1)
         val id = rb.id.toShort()
+        boxX0 = x0; boxX1 = x1
         for (y in y0..y1) {
             for (x in x0..x1) {
                 val px = (x + 0.5f) * B - pos.x
@@ -464,6 +495,7 @@ class Bodies(private val w: World, private val air: Air) {
                     if (ph >= Phase.LIQUID.ordinal) {
                         // вытесняем частицу рядом, а если вокруг тесно (глубоко в воде) — туда, откуда тело ушло
                         var f = findFree(x, y)
+                        if (f < 0 && ph == Phase.LIQUID.ordinal) f = surfaceCell(x, y)
                         if (f < 0) f = freedCell(rb)
                         if (f < 0) continue
                         w.swap(i, f)
@@ -485,6 +517,37 @@ class Bodies(private val w: World, private val air: Air) {
                 rb.stamped.add(i); rb.stampedLocal.add(l)
             }
         }
+    }
+
+    private var boxX0 = 0
+    private var boxX1 = 0
+
+    /**
+     * Вытесненная жидкость поднимает уровень рядом с телом: ищем ближайший к телу столбец жидкости
+     * и кладём каплю на его поверхность.
+     */
+    private fun surfaceCell(x: Int, y: Int): Int {
+        val ww = w.w
+        val leftFirst = x - boxX0 < boxX1 - x
+        for (d in 1..40) {
+            for (side in 0 until 2) {
+                val goLeft = (side == 0) == leftFirst
+                val sx = if (goLeft) boxX0 - d else boxX1 + d
+                if (sx < 0 || sx >= ww) continue
+                val j0 = y * ww + sx
+                if (!Mat.isLiquid(w.type[j0].toInt()) || w.owner[j0].toInt() != 0) continue
+                var yy = y - 1
+                while (yy >= 0) {
+                    val j = yy * ww + sx
+                    val t = w.type[j].toInt()
+                    if (w.owner[j].toInt() != 0) break
+                    if (Mat.isLiquid(t)) { yy--; continue }
+                    if (t == Mat.AIR || Mat.isGas(t)) return j
+                    break
+                }
+            }
+        }
+        return -1
     }
 
     private fun freedCell(rb: RigidBody): Int {
