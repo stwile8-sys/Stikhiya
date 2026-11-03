@@ -81,16 +81,17 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         buttons.clear()
         // ---- левая панель: инструменты ----
         var y = 4f * u
-        val bh = 38f * u
+        val th = 33f * u
         val pad = 4f * u
         for (t in Tool.values()) {
-            buttons += Button(Rect(pad, y, side - 2 * pad, bh), { t.title }, null, { st.tool == t }) { st.tool = t }
-            y += bh + 2f * u
+            buttons += Button(Rect(pad, y, side - 2 * pad, th), { t.title }, null, { st.tool == t }) { st.tool = t }
+            y += th + 2f * u
         }
-        y += 6f * u
+        y += 16f * u // место под подпись «Кисть Ø…»
         val half = (side - 2 * pad - 2f * u) / 2f
-        buttons += Button(Rect(pad, y, half, 34f * u), { "−" }) { st.brush = maxOf(0, st.brush - 1) }
-        buttons += Button(Rect(pad + half + 2f * u, y, half, 34f * u), { "+" }) { st.brush = minOf(24, st.brush + 1) }
+        buttons += Button(Rect(pad, y, half, 31f * u), { "−" }) { st.brush = maxOf(0, st.brush - 1) }
+        buttons += Button(Rect(pad + half + 2f * u, y, half, 31f * u), { "+" }) { st.brush = minOf(24, st.brush + 1) }
+        val bh = 38f * u
 
         // ---- правая панель: время и вид ----
         val rx = width - side + pad

@@ -24,6 +24,7 @@ class Simulator(val world: World) {
 }
 
 enum class Tool(val title: String) {
+    HAND("Рука"),
     DRAW("Кисть"),
     ERASE("Ластик"),
     HEAT("Нагреть"),
@@ -35,6 +36,7 @@ enum class Tool(val title: String) {
 /** Инструменты игрока: рисование веществом, ластик, нагрев, охлаждение, перемешивание. */
 object Brush {
     fun apply(w: World, tool: Tool, substance: Int, cx: Int, cy: Int, r: Int) {
+        if (tool == Tool.HAND || tool == Tool.INSPECT) return
         val r2 = r * r + r
         for (dy in -r..r) {
             for (dx in -r..r) {
@@ -49,7 +51,7 @@ object Brush {
                     Tool.HEAT -> heatCell(w, i, 6f)
                     Tool.COOL -> heatCell(w, i, -6f)
                     Tool.STIR -> stir(w, i, x, y, r)
-                    Tool.INSPECT -> {}
+                    Tool.HAND, Tool.INSPECT -> {}
                 }
             }
         }

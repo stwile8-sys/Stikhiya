@@ -54,6 +54,11 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     private val pointerX = FloatArray(10)
     private val pointerY = FloatArray(10)
     private val pointerDown = BooleanArray(10)
+    private var panPointer = -1
+    private var panStartX = 0f
+    private var panStartY = 0f
+    private var panOriginX = 0f
+    private var panOriginY = 0f
     private var pinching = false
     private var pinchDist0 = 1f
     private var pinchZoom0 = 1f
@@ -280,9 +285,17 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             if (ui.isUi(x, y)) { ui.touchDown(x, y, pointer); return true }
             val down = pointerDown.count { it }
             if (down >= 2) {
-                // второй палец — масштаб, рисование отменяется
+                // второй палец — масштаб, рисование и перетаскивание отменяются
                 drawPointer = -1
+                panPointer = -1
                 startPinch()
+                return true
+            }
+            if (st.tool == Tool.HAND) {
+                // пустая рука: палец двигает карту
+                panPointer = pointer
+                panStartX = x; panStartY = y
+                panOriginX = originX; panOriginY = originY
                 return true
             }
             drawPointer = pointer
@@ -300,6 +313,12 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             pointerX[pointer] = x; pointerY[pointer] = y
             if (ui.touchDragged(x, y, pointer)) return true
             if (pinching) { updatePinch(); return true }
+            if (pointer == panPointer) {
+                originX = panOriginX + (x - panStartX)
+                originY = panOriginY + (y - panStartY)
+                clampView()
+                return true
+            }
             if (pointer == drawPointer) { curScreenX = x; curScreenY = y }
             return true
         }
@@ -309,6 +328,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             pointerDown[pointer] = false
             ui.touchUp(screenX.toFloat(), screenY.toFloat(), pointer)
             if (pointer == drawPointer) drawPointer = -1
+            if (pointer == panPointer) panPointer = -1
             if (pinching && pointerDown.count { it } < 2) pinching = false
             return true
         }
