@@ -3,22 +3,29 @@ package ru.stikhiya.game
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
+import ru.stikhiya.sim.Air
 import ru.stikhiya.sim.Mat
 import ru.stikhiya.sim.Phase
 import ru.stikhiya.sim.Units
 import ru.stikhiya.sim.World
 import java.nio.ByteOrder
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.log10
+import kotlin.math.sqrt
 
 enum class ViewMode(val title: String) {
     NORMAL("обычный"),
     TEMPERATURE("температура"),
     DENSITY("плотность"),
-    MIXTURES("смеси")
+    MIXTURES("смеси"),
+    WIND("ветер"),
+    PRESSURE("давление"),
+    OXYGEN("кислород")
 }
 
 /** Рисует мир в текстуру: одна клетка — один пиксель, дальше растягивается на экран. */
-class WorldRenderer(private val w: World) {
+class WorldRenderer(private val w: World, private val air: Air) {
     private val pixmap = Pixmap(w.w, w.h, Pixmap.Format.RGBA8888)
     val texture = Texture(pixmap).apply { setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest) }
     private val colors = IntArray(w.n)
@@ -46,6 +53,9 @@ class WorldRenderer(private val w: World) {
                 ViewMode.TEMPERATURE -> temperature(i)
                 ViewMode.DENSITY -> density(i)
                 ViewMode.MIXTURES -> mixtures(i)
+                ViewMode.WIND -> wind(i)
+                ViewMode.PRESSURE -> pressure(i)
+                ViewMode.OXYGEN -> oxygen(i)
             }
         }
         val buf = pixmap.pixels
@@ -197,6 +207,48 @@ class WorldRenderer(private val w: World) {
             r += 0.9f * k; g += 0.75f * k
         }
         if ((w.flags[i].toInt() and 2) != 0 && Mat.flammable[id]) { r = 1f; g *= 0.4f; b *= 0.2f }
+        return rgb(r, g, b, 1f)
+    }
+
+    // ---------------- Воздух ----------------
+
+    /** Ветер: оттенок — направление, яркость — скорость. */
+    private fun wind(i: Int): Int {
+        val wx = air.windX(i)
+        val wy = air.windY(i)
+        val s = sqrt(wx * wx + wy * wy)
+        val v = s / (s + 1.5f)
+        val hue = ((atan2(wy, wx) / (2f * Math.PI.toFloat())) + 1f) % 1f
+        // оттенок по кругу цветов: вправо — красный, вниз — зелёный, влево — голубой, вверх — фиолетовый
+        val h6 = hue * 6f
+        var r = (abs(h6 - 3f) - 1f).coerceIn(0f, 1f) * v
+        var g = (2f - abs(h6 - 2f)).coerceIn(0f, 1f) * v
+        var b = (2f - abs(h6 - 4f)).coerceIn(0f, 1f) * v
+        val id = w.type[i].toInt()
+        if (id != Mat.AIR) { r = r * 0.6f + baseR[id] * 0.4f; g = g * 0.6f + baseG[id] * 0.4f; b = b * 0.6f + baseB[id] * 0.4f }
+        return rgb(maxOf(r, bgR), maxOf(g, bgG), maxOf(b, bgB), 1f)
+    }
+
+    /** Давление: красное — выше атмосферного, синее — ниже. */
+    private fun pressure(i: Int): Int {
+        val p = air.pv[air.cellOf(i)]
+        val k = abs(p) / (abs(p) + 15f)
+        var r = bgR; var g = bgG; var b = bgB
+        if (p > 0f) { r += (1f - r) * k; g += (0.25f - g) * k * 0.5f } else { b += (1f - b) * k; g += (0.45f - g) * k }
+        val id = w.type[i].toInt()
+        if (id != Mat.AIR) { r = r * 0.55f + baseR[id] * 0.45f; g = g * 0.55f + baseG[id] * 0.45f; b = b * 0.55f + baseB[id] * 0.45f }
+        return rgb(r, g, b, 1f)
+    }
+
+    /** Кислород: зелёный — норма, красный — выгорел. */
+    private fun oxygen(i: Int): Int {
+        val o = air.o2[air.cellOf(i)]
+        val lack = ((Air.O2_NORMAL - o) / Air.O2_NORMAL).coerceIn(0f, 1f)
+        var r = 0.08f + 0.85f * lack
+        var g = 0.35f * (1f - lack) + 0.08f
+        var b = 0.12f
+        val id = w.type[i].toInt()
+        if (id != Mat.AIR) { r = r * 0.5f + baseR[id] * 0.5f; g = g * 0.5f + baseG[id] * 0.5f; b = b * 0.5f + baseB[id] * 0.5f }
         return rgb(r, g, b, 1f)
     }
 

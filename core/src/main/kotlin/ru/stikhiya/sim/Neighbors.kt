@@ -22,16 +22,17 @@ object Neighbors {
         return c
     }
 
-    /** Есть ли рядом воздух или пламя — доступ кислорода. */
+    /** Есть ли рядом воздух (в том числе с дымом) или пламя — доступ кислорода. */
     fun hasOxygen(w: World, i: Int): Boolean {
         for (d in 0 until 4) {
             val j = at(w, i, d)
             if (j < 0) continue
-            val t = w.type[j].toInt()
-            if (t == Mat.AIR || t == Mat.FLAME) return true
+            if (breathable(w.type[j].toInt())) return true
         }
         return false
     }
+
+    fun breathable(t: Int) = t == Mat.AIR || t == Mat.FLAME || t == Mat.SMOKE
 
     fun hasType(w: World, i: Int, id: Int): Boolean {
         for (d in 0 until 4) {

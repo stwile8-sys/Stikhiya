@@ -16,6 +16,7 @@ import ru.stikhiya.sim.Tool
 import ru.stikhiya.sim.Units
 import ru.stikhiya.sim.World
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 
@@ -68,7 +69,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     override fun create() {
         world = World(WORLD_W, WORLD_H)
         sim = Simulator(world)
-        renderer = WorldRenderer(world)
+        renderer = WorldRenderer(world, sim.air)
         batch = SpriteBatch()
         shapes = ShapeRenderer()
         ui = Ui(st, this)
@@ -105,7 +106,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
 
     /** Простая стартовая сцена: дно из камня, чтобы было на что сыпать. */
     private fun buildStartScene() {
-        world.clear()
+        sim.clear()
         val stone = Mat.id("stone")
         for (y in WORLD_H - 3 until WORLD_H) for (x in 0 until WORLD_W) world.put(world.idx(x, y), stone)
     }
@@ -182,6 +183,25 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             lastCellX = cx; lastCellY = cy
             return
         }
+        val air = sim.air
+        when (st.tool) {
+            Tool.WIND -> {
+                // ветер от пальца: скорость движения пальца → скорость воздуха (клеток за кадр → м/с)
+                val k = Units.CELL / Units.DT * 1.5f
+                val ux = ((cx - lastCellX) * k).coerceIn(-30f, 30f)
+                val uy = ((cy - lastCellY) * k).coerceIn(-30f, 30f)
+                if (abs(ux) + abs(uy) > 0.2f) air.brushWind(cx.toInt(), cy.toInt(), st.brush + 2, ux, uy)
+                lastCellX = cx; lastCellY = cy
+                return
+            }
+            Tool.PRESSURE_UP, Tool.PRESSURE_DOWN -> {
+                val dp = if (st.tool == Tool.PRESSURE_UP) 15f else -15f
+                air.brushPressure(cx.toInt(), cy.toInt(), st.brush + 2, dp)
+                lastCellX = cx; lastCellY = cy
+                return
+            }
+            else -> {}
+        }
         // протягиваем мазок от прошлой точки к новой, чтобы линия была сплошной
         val dist = hypot(cx - lastCellX, cy - lastCellY)
         val step = maxOf(1f, st.brush * 0.7f)
@@ -257,6 +277,15 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             sb.append('\n').append("$what ${pct(world.cure[i])}")
         }
         if (Mat.isGas(id) && id != Mat.AIR && world.amt[i] > 1.05f) sb.append('\n').append("Сжат в ${f1(world.amt[i])} раза")
+        val air = sim.air
+        val p = air.pressure(i) / 1000f
+        val wx = air.windX(i)
+        val wy = air.windY(i)
+        sb.append('\n').append("Давление ${f1(p)} кПа · ветер ${f1(hypot(wx, wy))} м/с · кислород ${f1(air.oxygen(i) * 100f)} %")
+        val boilTo = Mat.hotTo[id]
+        if (Mat.isLiquid(id) && boilTo >= 0 && Mat.isGas(boilTo)) {
+            sb.append('\n').append("Закипит при ${f1(air.boilPoint(id, Mat.hotAt[id], i))} °C")
+        }
         if ((Mat.isLiquid(id) || Mat.isPowder(id)) && world.amt[i] < 0.98f) sb.append('\n').append("Заполнено ${pct(world.amt[i])} клетки")
         return sb.toString()
     }

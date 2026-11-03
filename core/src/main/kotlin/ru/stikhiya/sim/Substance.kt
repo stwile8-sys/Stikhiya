@@ -54,6 +54,13 @@ class Substance(
     val flameTemp: Float = 1000f,           // температура пламени, °C
     val charAt: Float = Float.NaN,          // обугливание без доступа воздуха
     val charTo: String? = null,
+    val oxygenNeed: Float = 1.5f,           // кг кислорода на кг топлива; 0 — свой окислитель (порох)
+    val fineness: Float = 0f,               // 0..1: насколько мелкие частицы — поверхность вспыхивает от пламени раньше, чем прогреется вся клетка
+    val gasYield: Float = 0f,               // м³ газа (при н. у.) на кг — взрывчатка
+
+    // Вентилятор: куда дует
+    val fanX: Int = 0,
+    val fanY: Int = 0,
 
     // Клей: застывает сам (испарение воды или химия)
     val cureTime: Float = Float.NaN,        // с при 20 °C на открытом воздухе

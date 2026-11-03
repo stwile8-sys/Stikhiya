@@ -2,9 +2,10 @@ package ru.stikhiya.sim
 
 /** Один шаг мира = 1/60 секунды. */
 class Simulator(val world: World) {
-    val heat = Heat(world)
-    val motion = Motion(world)
-    val chemistry = Chemistry(world)
+    val air = Air(world)
+    val heat = Heat(world, air)
+    val motion = Motion(world, air)
+    val chemistry = Chemistry(world, air)
     var tick = 0
         private set
 
@@ -19,24 +20,34 @@ class Simulator(val world: World) {
         tick++
         heat.step()
         chemistry.step()
+        air.step()
         motion.step(tick)
+    }
+
+    fun clear() {
+        world.clear()
+        air.clear()
     }
 }
 
-enum class Tool(val title: String) {
+enum class Tool(val title: String, val inPanel: Boolean = true) {
     HAND("Рука"),
     DRAW("Кисть"),
     ERASE("Ластик"),
     HEAT("Нагреть"),
     COOL("Охладить"),
     STIR("Мешать"),
-    INSPECT("Смотреть")
+    INSPECT("Смотреть"),
+    // кисти воздуха — в категории «Особые»
+    WIND("Ветер", false),
+    PRESSURE_UP("Давление +", false),
+    PRESSURE_DOWN("Давление −", false)
 }
 
 /** Инструменты игрока: рисование веществом, ластик, нагрев, охлаждение, перемешивание. */
 object Brush {
     fun apply(w: World, tool: Tool, substance: Int, cx: Int, cy: Int, r: Int) {
-        if (tool == Tool.HAND || tool == Tool.INSPECT) return
+        if (tool == Tool.HAND || tool == Tool.INSPECT || !tool.inPanel) return
         val r2 = r * r + r
         for (dy in -r..r) {
             for (dx in -r..r) {
@@ -51,7 +62,7 @@ object Brush {
                     Tool.HEAT -> heatCell(w, i, 6f)
                     Tool.COOL -> heatCell(w, i, -6f)
                     Tool.STIR -> stir(w, i, x, y, r)
-                    Tool.HAND, Tool.INSPECT -> {}
+                    else -> {}
                 }
             }
         }

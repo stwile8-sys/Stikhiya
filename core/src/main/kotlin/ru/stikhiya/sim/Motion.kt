@@ -1,12 +1,13 @@
 package ru.stikhiya.sim
 
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Движение: порошки падают с ускорением и осыпаются, жидкости растекаются и слоятся по плотности,
  * газы всплывают или опускаются относительно воздуха, пузыри поднимаются сквозь жидкость.
  */
-class Motion(private val w: World) {
+class Motion(private val w: World, private val air: Air) {
     private var tick = 0
 
     fun step(tick: Int) {
@@ -68,6 +69,11 @@ class Motion(private val w: World) {
         var x = x0
         var y = y0
         val ww = w.w
+        // сильный ветер или взрыв сдувает порошок; мокрый держится
+        val por = Mat.porosity[id]
+        val fill = if (por > 0f && w.mixId[i].toInt() != 0) w.mix[i] / (por * w.amt[i]) else 0f
+        val vth = 1.5f * sqrt(Mat.density[id] / 200f) * (1f + 8f * fill)
+        if (blow(i, x, y, vth) >= 0) return
         val rho = w.cellDensity(i)
         w.vy[i] = minOf(w.vy[i] + Units.G, Units.MAX_FALL)
         var n = steps(w.vy[i])
@@ -149,6 +155,7 @@ class Motion(private val w: World) {
             if (coalesce(i, id)) return
             if (w.rnd() > 0.15f) { w.stamp[i] = tick; return }
         }
+        if (blow(i, x, y, 8f) >= 0) return
         val rho = w.cellDensity(i)
         w.vy[i] = minOf(w.vy[i] + Units.G, Units.MAX_FALL)
         var n = steps(w.vy[i])
@@ -283,6 +290,8 @@ class Motion(private val w: World) {
     private fun gas(i: Int, x: Int, y: Int, id: Int) {
         val ww = w.w
         if (w.amt[i] > 2f) expand(i, id)
+        // газ уносится ветром
+        if (gasWind(i, x, y)) return
         val rhoG = w.massDensity(id, w.temp[i])
 
         // пузырь в жидкости — всплывает
@@ -342,6 +351,68 @@ class Motion(private val w: World) {
         val rj = w.massDensity(t, w.temp[j])
         if ((up && rj > rhoG * 1.01f) || (!up && rj < rhoG * 0.99f)) { move(i, j); return j }
         return -1
+    }
+
+    /** Газ и пламя переносятся ветром. true — клетка сдвинулась. */
+    private fun gasWind(i: Int, x: Int, y: Int): Boolean {
+        val ux = air.windX(i) * air.cellsPerTick
+        val uy = air.windY(i) * air.cellsPerTick
+        if (abs(ux) + abs(uy) < 0.1f) return false
+        var cur = i
+        var cx = x
+        var cy = y
+        val nx = minOf(3, steps(abs(ux)))
+        val ny = minOf(3, steps(abs(uy)))
+        val dx = if (ux > 0f) 1 else -1
+        val dy = if (uy > 0f) 1 else -1
+        var kx = 0
+        var ky = 0
+        while (kx < nx || ky < ny) {
+            val goX = kx < nx && (ky >= ny || w.rnd() < 0.5f)
+            val tx = if (goX) cx + dx else cx
+            val ty = if (goX) cy else cy + dy
+            if (goX) kx++ else ky++
+            if (tx < 0 || tx >= w.w || ty < 0 || ty >= w.h) break
+            val j = ty * w.w + tx
+            val t = w.type[j].toInt()
+            if (t != Mat.AIR && (!Mat.isGas(t) || t == w.type[cur].toInt())) break
+            move(cur, j)
+            cur = j; cx = tx; cy = ty
+        }
+        if (cur == i) return false
+        w.stamp[cur] = tick
+        return true
+    }
+
+    /**
+     * Ветер сильнее порога сдувает клетку по течению (порошок, брызги).
+     * Возвращает новую позицию или -1.
+     */
+    private fun blow(i: Int, x: Int, y: Int, threshold: Float): Int {
+        val wx = air.windX(i)
+        val wy = air.windY(i)
+        val speed = abs(wx) + abs(wy)
+        if (speed <= threshold) return -1
+        if (w.rnd() > (speed - threshold) / threshold) return -1
+        val n = minOf(4, maxOf(1, (speed * air.cellsPerTick * 0.25f).toInt()))
+        var cur = i
+        var cx = x
+        var cy = y
+        for (k in 0 until n) {
+            val goX = w.rnd() * speed < abs(wx)
+            val tx = if (goX) cx + (if (wx > 0f) 1 else -1) else cx
+            val ty = if (goX) cy else cy + (if (wy > 0f) 1 else -1)
+            if (tx < 0 || tx >= w.w || ty < 0 || ty >= w.h) break
+            val j = ty * w.w + tx
+            val t = w.type[j].toInt()
+            if (t != Mat.AIR && !Mat.isGas(t)) break
+            move(cur, j)
+            cur = j; cx = tx; cy = ty
+        }
+        if (cur == i) return -1
+        w.vy[cur] = 0f
+        w.stamp[cur] = tick
+        return cur
     }
 
     /** Сжатый газ (только что выкипевший) расширяется в соседние пустые клетки. */

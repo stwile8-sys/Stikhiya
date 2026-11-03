@@ -7,7 +7,7 @@ import kotlin.math.exp
  * Тепло: теплопроводность между клетками, теплоотдача газ — поверхность (конвекция + излучение),
  * кипение у горячей стенки, всплытие тёплого воздуха и фазовые переходы с теплотой перехода.
  */
-class Heat(private val w: World) {
+class Heat(private val w: World, private val air: Air) {
     private val n = w.n
     private val cap = FloatArray(n)     // теплоёмкость клетки, Дж/К
     private val k = FloatArray(n)       // эффективная теплопроводность, Вт/(м·К)
@@ -84,6 +84,9 @@ class Heat(private val w: World) {
                 val t2 = ts + Units.KELVIN
                 h += eps * Units.SIGMA * (t1 * t1 + t2 * t2) * (t1 + t2)
             }
+            // в рыхлый порошок горячий газ проникает между зёрнами — поверхность обмена больше
+            val sid = w.type[surf].toInt()
+            if (Mat.isPowder(sid)) h *= 1f + 6f * Mat.porosity[sid]
             g = h * Units.AREA
         } else if ((ki == 1 || kj == 1) && a != b) {
             // жидкость у стенки или другой жидкости: конвекция, кипение, плёночное кипение
@@ -93,7 +96,7 @@ class Heat(private val w: World) {
             var h = 300f
             val boilTo = Mat.hotTo[fid]
             if (boilTo >= 0 && Mat.isGas(boilTo)) {
-                val boil = Mat.hotAt[fid]
+                val boil = air.boilPoint(fid, Mat.hotAt[fid], fluid)
                 if (temp[fluid] >= boil - 0.5f && temp[wall] > boil) {
                     h = if (temp[wall] - boil > 200f) 400f else 10000f
                 }
@@ -177,8 +180,11 @@ class Heat(private val w: World) {
             val c = Mat.heatCap[id]
             val hot = Mat.hotTo[id]
             val cold = Mat.coldTo[id]
-            if (hot >= 0 && t > Mat.hotAt[id]) {
-                val ha = Mat.hotAt[id]
+            // точки кипения и конденсации зависят от давления
+            val hotAt = if (hot >= 0 && Mat.boilShift[id] != 0f && Mat.isLiquid(id)) air.boilPoint(id, Mat.hotAt[id], i) else Mat.hotAt[id]
+            val coldAt = if (cold >= 0 && Mat.boilShift[id] != 0f && Mat.isGas(id)) air.boilPoint(id, Mat.coldAt[id], i) else Mat.coldAt[id]
+            if (hot >= 0 && t > hotAt) {
+                val ha = hotAt
                 lat[i] += (t - ha) * c
                 temp[i] = ha
                 if (lat[i] >= Mat.hotLatent[id]) {
@@ -186,8 +192,8 @@ class Heat(private val w: World) {
                     convert(i, id, hot)
                     temp[i] = ha + rest / Mat.heatCap[hot]
                 }
-            } else if (cold >= 0 && t < Mat.coldAt[id]) {
-                val ca = Mat.coldAt[id]
+            } else if (cold >= 0 && t < coldAt) {
+                val ca = coldAt
                 lat[i] -= (ca - t) * c
                 temp[i] = ca
                 if (-lat[i] >= Mat.coldLatent[id]) {
@@ -197,11 +203,11 @@ class Heat(private val w: World) {
                 }
             } else if (lat[i] != 0f) {
                 // переход не завершился — тепло возвращается
-                if (lat[i] > 0f && hot >= 0 && t < Mat.hotAt[id]) {
-                    val give = minOf(lat[i], (Mat.hotAt[id] - t) * c)
+                if (lat[i] > 0f && hot >= 0 && t < hotAt) {
+                    val give = minOf(lat[i], (hotAt - t) * c)
                     lat[i] -= give; temp[i] = t + give / c
-                } else if (lat[i] < 0f && cold >= 0 && t > Mat.coldAt[id]) {
-                    val take = minOf(-lat[i], (t - Mat.coldAt[id]) * c)
+                } else if (lat[i] < 0f && cold >= 0 && t > coldAt) {
+                    val take = minOf(-lat[i], (t - coldAt) * c)
                     lat[i] += take; temp[i] = t - take / c
                 } else if (hot < 0 && cold < 0) {
                     lat[i] = 0f

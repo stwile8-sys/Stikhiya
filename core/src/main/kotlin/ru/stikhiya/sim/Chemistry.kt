@@ -8,7 +8,7 @@ package ru.stikhiya.sim
  * ускоряются множителем [chemSpeed].
  * Быстрые (растворение, впитывание, горение) идут в реальном времени.
  */
-class Chemistry(private val w: World) {
+class Chemistry(private val w: World, private val air: Air) {
     var chemSpeed = 60f
 
     private val burning = 2 // бит в flags: клетка горит
@@ -391,24 +391,44 @@ class Chemistry(private val w: World) {
         val f = w.flags[i].toInt()
         val t = w.temp[i]
         val isBurning = (f and burning) != 0
-        val oxygen = Neighbors.hasOxygen(w, i)
+        // порох несёт окислитель в себе и горит даже засыпанным
+        val selfOx = Mat.oxygenNeed[id] <= 0f
+        val o2 = if (selfOx) Air.O2_NORMAL else air.oxygen(i)
+        val contact = selfOx || Neighbors.hasOxygen(w, i)
         if (!isBurning) {
-            if (!oxygen) return
-            val ignite = t >= Mat.autoIgnition[id] ||
-                (t >= Mat.flashPoint[id] && (Neighbors.hasType(w, i, Mat.FLAME) || burningNeighbor(i)))
+            if (!contact || o2 < Air.O2_FLAME_MIN + 0.01f) return
+            // мокрое не загорается: вода в порах забирает тепло (сырой порох, сырые опилки)
+            val liq = w.mixId[i].toInt()
+            if (Mat.isPowder(id) && liq != 0 && !Mat.flammable[liq] &&
+                w.mix[i] > 0.3f * Mat.porosity[id] * w.amt[i]) return
+            // поверхность мелких частиц вспыхивает от пламени раньше, чем прогреется вся клетка
+            val hot = hottestFire(i)
+            val surfaceT = if (hot > t) t + Mat.fineness[id] * (hot - t) else t
+            val ignite = t >= Mat.autoIgnition[id] || (hot > 0f && surfaceT >= Mat.flashPoint[id])
             if (ignite) w.flags[i] = (f or burning).toByte()
             return
         }
-        // погасло: остыло или нет воздуха (засыпали, залили, углекислый газ)
-        if (t < Mat.flashPoint[id] - 60f) { w.flags[i] = (f and burning.inv()).toByte(); return }
-        if (!oxygen) return
+        // задохнулось: кончился кислород, засыпали, залили, углекислый газ
+        if (o2 < Air.O2_FLAME_MIN) { w.flags[i] = (f and burning.inv()).toByte(); return }
+        if (!contact) return
 
-        // горит поверхность: чем больше граней открыто воздуху, тем быстрее
-        val faces = oxygenFaces(i)
-        val dp = Units.DT / Mat.burnTime[id] * faces
+        // горит поверхность: чем больше граней открыто воздуху и чем больше кислорода, тем быстрее
+        val faces = if (selfOx) 2 else oxygenFaces(i)
+        val rate = if (selfOx) 1f else (o2 / Air.O2_NORMAL).coerceIn(0.3f, 1.2f)
+        val dp = Units.DT / Mat.burnTime[id] * faces * rate
         val mass = Mat.density[id] * Units.VOL * w.amt[i]
-        val e = Mat.burnHeat[id] * mass * dp
+        val burned = mass * minOf(dp, maxOf(0f, 1f - w.burn[i]) + 1e-6f)
+        val e = Mat.burnHeat[id] * burned
         w.burn[i] += dp
+        // кислород уходит из воздуха; продукты горения уносит и разбавляет поток над огнём
+        if (!selfOx) air.consumeOxygen(i, burned * Mat.oxygenNeed[id])
+        val gy = Mat.gasYield[id]
+        if (gy > 0f) {
+            // газы взрыва распирают воздух: объём при температуре пламени → давление
+            val tf = Mat.flameTemp[id] + Units.KELVIN
+            val gasVol = gy * burned * tf / Units.KELVIN
+            air.addPressure(i, gasVol / (air.cs * air.cs * Units.VOL) * 101.325f * EXPLOSION_SCALE)
+        }
         // угли и дерево сами раскалены; жидкость получает лишь малую долю тепла пламени
         val selfShare = if (Mat.isLiquid(id)) 0.02f else 0.3f
         w.temp[i] += selfShare * e / w.heatCapacity(i)
@@ -428,6 +448,11 @@ class Chemistry(private val w: World) {
             val s = Neighbors.randomAir(w, i, preferUp = true)
             if (s >= 0) w.put(s, Mat.SMOKE, ft * 0.6f)
         }
+        // погасло, если остыло (залили, засыпали холодным); мелкие частицы держит собственное пламя
+        val tNow = w.temp[i]
+        val fire = hottestFire(i)
+        val effT = if (fire > tNow) tNow + Mat.fineness[id] * (fire - tNow) else tNow
+        if (effT < Mat.flashPoint[id] - 60f) w.flags[i] = (w.flags[i].toInt() and burning.inv()).toByte()
         if (w.burn[i] >= 1f) {
             val res = Mat.burnTo[id]
             val tt = w.temp[i]
@@ -444,18 +469,22 @@ class Chemistry(private val w: World) {
         for (d in 0 until 4) {
             val j = Neighbors.at(w, i, d)
             if (j < 0) continue
-            val t = w.type[j].toInt()
-            if (t == Mat.AIR || t == Mat.FLAME) c++
+            if (Neighbors.breathable(w.type[j].toInt())) c++
         }
         return maxOf(c, 1)
     }
 
-    private fun burningNeighbor(i: Int): Boolean {
+    /** Температура самого горячего пламени или горящей клетки рядом; 0 — огня рядом нет. */
+    private fun hottestFire(i: Int): Float {
+        var best = 0f
         for (d in 0 until 4) {
             val j = Neighbors.at(w, i, d)
-            if (j >= 0 && (w.flags[j].toInt() and burning) != 0 && Mat.flammable[w.type[j].toInt()]) return true
+            if (j < 0) continue
+            val tj = w.type[j].toInt()
+            val fire = tj == Mat.FLAME || ((w.flags[j].toInt() and burning) != 0 && Mat.flammable[tj])
+            if (fire && w.temp[j] > best) best = w.temp[j]
         }
-        return false
+        return best
     }
 
     /** Без доступа воздуха горячее дерево и опилки превращаются в уголь. */
@@ -472,4 +501,9 @@ class Chemistry(private val w: World) {
     }
 
     fun isBurning(i: Int) = (w.flags[i].toInt() and burning) != 0
+
+    companion object {
+        /** Игровой масштаб давления взрыва (звук в игре медленнее настоящего). */
+        const val EXPLOSION_SCALE = 0.02f
+    }
 }

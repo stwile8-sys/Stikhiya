@@ -65,6 +65,28 @@ object Mat {
     val charAt = FloatArray(count) { list[it].charAt }
     val charTo = IntArray(count) { idOrNeg(list[it].charTo) }
     val flammable = BooleanArray(count) { list[it].burnHeat > 0f }
+    val oxygenNeed = FloatArray(count) { list[it].oxygenNeed }
+    val fineness = FloatArray(count) { list[it].fineness }
+    val gasYield = FloatArray(count) { list[it].gasYield }
+    val fanX = IntArray(count) { list[it].fanX }
+    val fanY = IntArray(count) { list[it].fanY }
+    val isFan = BooleanArray(count) { list[it].fanX != 0 || list[it].fanY != 0 }
+
+    /**
+     * Сдвиг точки кипения с давлением (уравнение Клапейрона — Клаузиуса):
+     * 1/T = 1/T0 − R·ln(P/P0)/(M·L). Здесь — R·T0/(M·L) для жидкостей, кипящих в газ, и для газов, конденсирующихся в жидкость.
+     */
+    val boilShift = FloatArray(count) { i ->
+        val s = list[i]
+        val gasKey = if (s.phase == Phase.LIQUID) s.hotTo else if (s.phase == Phase.GAS) s.key else null
+        val gas = gasKey?.let { k -> list.firstOrNull { it.key == k } }
+        val t0 = if (s.phase == Phase.LIQUID) s.hotAt else s.coldAt
+        val lat = if (s.phase == Phase.LIQUID) s.hotLatent else s.coldLatent
+        val liquidPair = if (s.phase == Phase.LIQUID) gas?.phase == Phase.GAS
+            else list.firstOrNull { it.key == s.coldTo }?.phase == Phase.LIQUID
+        if (gas == null || !liquidPair || gas.molarMass <= 0f || lat <= 0f || t0.isNaN()) 0f
+        else Units.R_GAS * (t0 + Units.KELVIN) / (gas.molarMass * lat)
+    }
 
     val cureTime = FloatArray(count) { list[it].cureTime }
     val curedTo = IntArray(count) { idOrNeg(list[it].curedTo) }

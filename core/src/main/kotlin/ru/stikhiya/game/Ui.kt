@@ -83,7 +83,7 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         var y = 4f * u
         val th = 33f * u
         val pad = 4f * u
-        for (t in Tool.values()) {
+        for (t in Tool.values().filter { it.inPanel }) {
             buttons += Button(Rect(pad, y, side - 2 * pad, th), { t.title }, null, { st.tool == t }) { st.tool = t }
             y += th + 2f * u
         }
@@ -144,9 +144,9 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         for ((r, c) in tabs) fill(sh, r, if (st.category == c) cSelected else cButton)
         // фишки веществ
         forEachChip { r, id ->
-            val sel = st.substance == id && st.tool == Tool.DRAW
+            val sel = if (id < 0) st.tool == chipTool(id) else st.substance == id && st.tool == Tool.DRAW
             fill(sh, r, if (sel) cSelected else cButton)
-            val col = Mat[id].color
+            val col = if (id < 0) toolColor(chipTool(id)) else Mat[id].color
             sh.setColor(((col shr 16) and 0xFF) / 255f, ((col shr 8) and 0xFF) / 255f, (col and 0xFF) / 255f, 1f)
             val sw = Rect(r.x + 4f * u, r.y + 7f * u, 9f * u, r.h - 14f * u)
             rectGl(sh, sw)
@@ -171,7 +171,7 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         for ((r, c) in tabs) centered(batch, small, c.title, r, r.y + r.h / 2f, cText)
         forEachChip { r, id ->
             small.color = cText
-            text(batch, small, Mat[id].name, r.x + 16f * u, r.y + r.h / 2f)
+            text(batch, small, if (id < 0) chipTool(id).title else Mat[id].name, r.x + 16f * u, r.y + r.h / 2f)
         }
         // строка состояния справа от вкладок
         val hud = callbacks.hudText()
@@ -191,11 +191,29 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         val info = callbacks.inspectText() ?: return
         val lines = info.count { it == '\n' } + 1
         sh.setColor(0f, 0f, 0f, 0.6f)
-        rectGl(sh, Rect(world.x + 4f * u, world.y + 3f * u, minOf(world.w - 8f * u, 260f * u), lines * fontLineH + 8f * u))
+        rectGl(sh, Rect(world.x + 4f * u, world.y + 3f * u, minOf(world.w - 8f * u, 430f * u), lines * fontLineH + 8f * u))
+    }
+
+    /** Фишки категории: вещества, а в «Особых» сначала кисти воздуха (номера меньше нуля). */
+    private fun chips(): List<Int> {
+        val list = Mat.palette[st.category].orEmpty()
+        if (st.category != Category.SPECIAL) return list
+        return airTools.map { -(it.ordinal + 1) } + list
+    }
+
+    private val airTools = Tool.values().filter { !it.inPanel }
+
+    private fun chipTool(id: Int) = Tool.values()[-id - 1]
+
+    private fun toolColor(t: Tool) = when (t) {
+        Tool.WIND -> 0x7FB8E6
+        Tool.PRESSURE_UP -> 0xE07A5F
+        Tool.PRESSURE_DOWN -> 0x5F8FE0
+        else -> 0x888888
     }
 
     private inline fun forEachChip(f: (Rect, Int) -> Unit) {
-        val list = Mat.palette[st.category].orEmpty()
+        val list = chips()
         val cw = 82f * u
         var x = 4f * u - scrollX
         val r = Rect()
@@ -206,7 +224,7 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         }
     }
 
-    private fun chipsWidth(): Float = Mat.palette[st.category].orEmpty().size * 82f * u + 8f * u
+    private fun chipsWidth(): Float = chips().size * 82f * u + 8f * u
 
     private fun fill(sh: ShapeRenderer, r: Rect, c: Color) {
         sh.color = c
@@ -259,7 +277,9 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         scrollPointer = -1
         if (!scrollMoved) {
             forEachChip { r, id ->
-                if (r.contains(x, y)) { st.substance = id; st.tool = Tool.DRAW }
+                if (r.contains(x, y)) {
+                    if (id < 0) st.tool = chipTool(id) else { st.substance = id; st.tool = Tool.DRAW }
+                }
             }
         }
         return true
