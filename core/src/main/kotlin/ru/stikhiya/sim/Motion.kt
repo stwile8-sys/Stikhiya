@@ -446,33 +446,15 @@ class Motion(private val w: World, private val air: Air) {
 
     /** Газ и пламя переносятся ветром. true — клетка сдвинулась. */
     private fun gasWind(i: Int, x: Int, y: Int): Boolean {
-        var ux = air.windX(i) * air.cellsPerTick
-        var uy = air.windY(i) * air.cellsPerTick
-        // истечение из камеры: газ рвётся туда, где давление ниже (сопло) со скоростью ~√(2Δp/ρ)
-        val c = air.cellOf(i)
-        val p0 = air.pv[c]
-        if (p0 > NOZZLE_DP) {
-            val aw = air.aw
-            val cxx = c % aw
-            var best = p0; var dx = 0; var dy = 0
-            if (cxx > 0 && !air.blocked[c - 1] && air.pv[c - 1] < best) { best = air.pv[c - 1]; dx = -1; dy = 0 }
-            if (cxx < aw - 1 && !air.blocked[c + 1] && air.pv[c + 1] < best) { best = air.pv[c + 1]; dx = 1; dy = 0 }
-            if (c >= aw && !air.blocked[c - aw] && air.pv[c - aw] < best) { best = air.pv[c - aw]; dx = 0; dy = -1 }
-            if (c + aw < air.an && !air.blocked[c + aw] && air.pv[c + aw] < best) { best = air.pv[c + aw]; dx = 0; dy = 1 }
-            val dp = p0 - best
-            if (dp > NOZZLE_DP) {
-                val rho = maxOf(0.15f, w.massDensity(w.type[i].toInt(), w.temp[i]))
-                val v = kotlin.math.sqrt(2f * p0 * 1000f / rho) * NOZZLE_K * air.cellsPerTick
-                ux += dx * v; uy += dy * v
-            }
-        }
+        val ux = air.windX(i) * air.cellsPerTick
+        val uy = air.windY(i) * air.cellsPerTick
         if (abs(ux) + abs(uy) < 0.1f) return false
         var cur = i
         var cx = x
         var cy = y
         // сильный поток (струя из сопла) несёт газ и пламя далеко
-        val nx = minOf(8, steps(abs(ux)))
-        val ny = minOf(8, steps(abs(uy)))
+        val nx = minOf(16, steps(abs(ux)))
+        val ny = minOf(16, steps(abs(uy)))
         val dx = if (ux > 0f) 1 else -1
         val dy = if (uy > 0f) 1 else -1
         var kx = 0
@@ -545,10 +527,6 @@ class Motion(private val w: World, private val air: Air) {
         }
     }
 
-    companion object {
-        const val NOZZLE_DP = 1.0f    // кПа
-        const val NOZZLE_K = 0.06f    // игровой масштаб: звук в игре медленнее настоящего
-    }
 
     @Suppress("unused")
     private fun near(a: Float, b: Float) = abs(a - b) < 1e-3f

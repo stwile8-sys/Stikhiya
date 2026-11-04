@@ -159,6 +159,8 @@ class Heat(private val w: World, private val air: Air) {
 
     /** Тёплый воздух поднимается, холодный опускается; немного перемешивается в стороны. */
     private var flip = false
+    private val exposed get() = air.exposed
+    private fun coarse(i: Int) = air.cellOf(i)
 
     private fun convectAir() {
         val ww = w.w
@@ -172,6 +174,8 @@ class Heat(private val w: World, private val air: Air) {
                 val x = if (flip) ww - 1 - xx else xx
                 val i = row + x
                 if (type[i].toInt() != Mat.AIR) continue
+                // открытый воздух отдаёт тепло вглубь комнаты (срез — 1 см настоящей комнаты)
+                if (exposed[coarse(i)]) { val d = Units.AMBIENT - temp[i]; if (d < -1f || d > 1f) temp[i] += d * DEPTH_COOL }
                 val j = i - ww
                 if (type[j].toInt() == Mat.AIR) {
                     val ti = temp[i]
@@ -328,6 +332,8 @@ class Heat(private val w: World, private val air: Air) {
     companion object {
         /** Доля выравнивания температуры соседних клеток воздуха за шаг (турбулентное перемешивание). */
         const val MIX = 0.06f
+        /** Остывание открытого воздуха за шаг (время ~3 с). */
+        const val DEPTH_COOL = Units.DT / 3f
         fun harmonic(a: Float, b: Float): Float = if (a + b <= 0f) 0f else 2f * a * b / (a + b)
 
         /** Во сколько раз быстрее идут химические процессы при нагреве (удвоение на 10 °C). */

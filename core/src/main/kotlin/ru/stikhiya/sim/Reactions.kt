@@ -201,6 +201,22 @@ class Reactions(private val w: World, private val air: Air) {
             if (t >= r.minT && t <= r.maxT && w.rnd() < prob(r, t)) apply(s, r, i, -1)
             if (w.type[i].toInt() != id) return
         }
+        // жидкость, впитавшаяся в поры порошка, реагирует с ним изнутри (вода в муке, в извести)
+        val pore = w.mixId[i].toInt()
+        if (pore != 0 && Mat.isPowder(id) && w.mix[i] > 0.02f) {
+            val k0 = pair[id * cnt + pore]
+            if (k0 >= 0) {
+                val r = list[k0]
+                val t = w.temp[i]
+                if (t >= r.minT && t <= r.maxT && rSolute[k0] < 0 && w.rnd() < prob(r, t)) {
+                    // часть воды уходит в продукт
+                    w.mix[i] = maxOf(0f, w.mix[i] - 0.1f)
+                    if (w.mix[i] <= 0.001f) { w.mixId[i] = 0; w.mix[i] = 0f }
+                    apply(k0, r, i, -1)
+                    return
+                }
+            }
+        }
         val j = Neighbors.at(w, i, w.rndInt(4))
         if (j < 0) return
         var k = pair[id * cnt + w.type[j].toInt()]

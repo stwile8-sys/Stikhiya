@@ -7,8 +7,12 @@ import kotlin.math.ln
  * Воздух на грубой сетке (клетка 4 × 4 см): давление, скорость ветра и доля кислорода.
  * Стены и плотные завалы не пропускают воздух, горячий воздух всплывает, ветер переносит тепло и кислород.
  *
- * Звук в игре распространяется медленнее настоящего — иначе давление выравнивалось бы за один шаг
- * и взрывов не было бы видно. Скорости — в м/с, давление — в кПа сверх атмосферного.
+ * Течение считается как у настоящего воздуха на малых скоростях (метод проекции, как в «Stable Fluids»):
+ * воздух почти несжимаем — звук быстрее любого ветра, поэтому давление выравнивается мгновенно,
+ * а взрыв, кипение и горение «раздувают» объём (источник расширения) — газ разлетается от них.
+ * Замкнутые объёмы (печь, банка) держат избыточное давление: скороварка, вакуум.
+ * Тёплый воздух всплывает (сила Архимеда), за ним подтягивается холодный — тяга в печи и трубе.
+ * Скорости — в м/с, давление — в кПа сверх атмосферного.
  */
 class Air(private val w: World) {
     val cs = 4
@@ -53,16 +57,31 @@ class Air(private val w: World) {
 
     fun clear() {
         pv.fill(0f); vx.fill(0f); vy.fill(0f); o2.fill(O2_NORMAL)
+        phi.fill(0f); src.fill(0f); statP.fill(0f)
     }
+
+    // ---- проекция ----
+    private val phi = FloatArray(an)       // потенциал давления, м²/с
+    private val src = FloatArray(an)       // расширение газа за шаг (доля объёма клетки)
+    private val rhs = FloatArray(an)
+    private val nbMask = IntArray(an)
+    private val invN = FloatArray(an)
+    /** Избыточное давление объёма (закрытая печь, банка; в комнате быстро уходит), кПа. */
+    private val statP = FloatArray(an)
+    private val region = IntArray(an) { -1 }
+    private var regions = 0
+    private var regSrc = FloatArray(16)
+    private var regN = IntArray(16)
+    private var regP = FloatArray(16)
 
     fun step() {
         tick++
         scan()
-        if (tick % 20 == 1) findOpen()
+        if (tick % 20 == 1) { findOpen(); labelRegions(); findExposed() }
         fans()
         buoyancy()
-        solve()
         advect()
+        project()
         advectHeat()
         edges()
     }
@@ -130,125 +149,189 @@ class Air(private val w: World) {
             val x = c % aw
             val y = c / aw
             val strength = minOf(1f, (abs(fx) + abs(fy)) / cs)
-            if (fx > 0f && x < aw - 1) vx[c] += (FAN_SPEED * strength - vx[c]) * 0.3f
-            if (fx < 0f && x > 0) vx[c - 1] += (-FAN_SPEED * strength - vx[c - 1]) * 0.3f
-            if (fy > 0f && y < ah - 1) vy[c] += (FAN_SPEED * strength - vy[c]) * 0.3f
-            if (fy < 0f && y > 0) vy[c - aw] += (-FAN_SPEED * strength - vy[c - aw]) * 0.3f
+            if (fx > 0f && x < aw - 1) vx[c] += (FAN_SPEED * strength - vx[c]) * 0.8f
+            if (fx < 0f && x > 0) vx[c - 1] += (-FAN_SPEED * strength - vx[c - 1]) * 0.8f
+            if (fy > 0f && y < ah - 1) vy[c] += (FAN_SPEED * strength - vy[c]) * 0.8f
+            if (fy < 0f && y > 0) vy[c - aw] += (-FAN_SPEED * strength - vy[c - aw]) * 0.8f
         }
     }
 
     /**
-     * Горячий воздух легче окружающего: сила Архимеда, a = g·ΔT/T.
-     * ΔT — разница с соседним воздухом на той же высоте: равномерно тёплая комната не «кипит».
+     * Горячий воздух легче окружающего: ускорение a = g·(T − T₀)/T₀ (Буссинеск), T₀ — воздух комнаты.
+     * Подъём тёплого и опускание холодного согласует проекция — получается тяга и вихри.
      */
     private fun buoyancy() {
-        val r = 6
-        for (y in 0 until ah) {
-            val row = y * aw
-            // скользящее среднее по строке
-            var sum = 0f
-            var cnt = 0
-            for (x in 0..minOf(r, aw - 1)) if (!blocked[row + x]) { sum += avgT[row + x]; cnt++ }
-            for (x in 0 until aw) {
-                val c = row + x
-                dev[c] = if (cnt > 0 && !blocked[c]) avgT[c] - sum / cnt else 0f
-                val add = x + r + 1
-                if (add < aw && !blocked[row + add]) { sum += avgT[row + add]; cnt++ }
-                val rem = x - r
-                if (rem >= 0 && !blocked[row + rem]) { sum -= avgT[row + rem]; cnt-- }
-            }
-        }
+        val t0 = roomT + Units.KELVIN
         for (c in aw until an) {
             if (blocked[c] || blocked[c - aw]) continue
             val t = (avgT[c] + avgT[c - aw]) * 0.5f
-            val d = ((dev[c] + dev[c - aw]) * 0.5f).coerceIn(-400f, 400f)
-            val a = (Units.GRAVITY * d / maxOf(t + Units.KELVIN, 100f)).coerceIn(-5f, 5f)
-            vy[c - aw] -= a * Units.DT * BUOYANCY
+            val a = (Units.GRAVITY * (t + Units.KELVIN - t0) / t0).coerceIn(-2f * Units.GRAVITY, 3f * Units.GRAVITY)
+            vy[c - aw] -= a * Units.DT
         }
     }
 
-    // ---------------- Давление и скорость ----------------
+    // ---------------- Перенос и проекция ----------------
 
-    private fun solve() {
-        for (y in 0 until ah) {
-            for (x in 0 until aw) {
-                val c = y * aw + x
-                if (blocked[c]) continue
-                val vl = if (x > 0 && !blocked[c - 1]) vx[c - 1] else 0f
-                val vu = if (y > 0 && !blocked[c - aw]) vy[c - aw] else 0f
-                val vr = if (x < aw - 1 && !blocked[c + 1]) vx[c] else 0f
-                val vd = if (y < ah - 1 && !blocked[c + aw]) vy[c] else 0f
-                val div = vl - vr + vu - vd
-                pv[c] = (pv[c] * P_LOSS + div * K_P).coerceIn(P_MIN, P_MAX)
-            }
-        }
-        for (y in 0 until ah) {
-            for (x in 0 until aw) {
-                val c = y * aw + x
-                if (blocked[c]) { vx[c] = 0f; vy[c] = 0f; continue }
-                if (x < aw - 1 && !blocked[c + 1]) {
-                    vx[c] = jet(vx[c] * V_LOSS + (pv[c] - pv[c + 1]) * K_V, pv[c] - pv[c + 1])
-                } else vx[c] = 0f
-                if (y < ah - 1 && !blocked[c + aw]) {
-                    vy[c] = jet(vy[c] * V_LOSS + (pv[c] - pv[c + aw]) * K_V, pv[c] - pv[c + aw])
-                } else vy[c] = 0f
-            }
-        }
-    }
-
-    /**
-     * Большой перепад давления (сопло камеры сгорания, пробоина) разгоняет газ почти до скорости
-     * Бернулли v = √(2Δp/ρ) — так получается реактивная струя.
-     */
-    private fun jet(v: Float, dp: Float): Float {
-        val a = abs(dp)
-        if (a < JET_DP) return v.coerceIn(-V_MAX, V_MAX)
-        val target = kotlin.math.sqrt(2f * (a - JET_DP) * 1000f / 1.2f) * JET_K * (if (dp > 0f) 1f else -1f)
-        val out = if ((target > 0f && v < target) || (target < 0f && v > target)) v + (target - v) * 0.2f else v
-        return out.coerceIn(-V_MAX, V_MAX)
-    }
-
-    /** Ветер переносит сам себя и кислород; лёгкое сглаживание держит расчёт устойчивым. */
+    /** Ветер переносит сам себя и кислород (полулагранжев перенос), лёгкое перемешивание и трение. */
     private fun advect() {
         val k = Units.DT / (Units.CELL * cs) // клеток воздуха за шаг на 1 м/с
         for (y in 0 until ah) {
             for (x in 0 until aw) {
                 val c = y * aw + x
-                if (blocked[c]) { tVx[c] = 0f; tVy[c] = 0f; tO2[c] = o2[c]; tP[c] = pv[c]; continue }
+                if (blocked[c]) { tVx[c] = 0f; tVy[c] = 0f; tO2[c] = o2[c]; continue }
+                // скорость в центре клетки
                 val ux = (vx[c] + (if (x > 0) vx[c - 1] else 0f)) * 0.5f
                 val uy = (vy[c] + (if (y > 0) vy[c - aw] else 0f)) * 0.5f
                 val sx = (x - ux * k).coerceIn(0f, (aw - 1).toFloat())
                 val sy = (y - uy * k).coerceIn(0f, (ah - 1).toFloat())
-                tVx[c] = sample(vx, sx, sy)
-                tVy[c] = sample(vy, sx, sy)
+                // грань хранится со сдвигом на полклетки — отбор с поправкой
+                tVx[c] = sample(vx, (x + 0.5f - ux * k - 0.5f).coerceIn(0f, (aw - 1).toFloat()), sy)
+                tVy[c] = sample(vy, sx, (y + 0.5f - uy * k - 0.5f).coerceIn(0f, (ah - 1).toFloat()))
                 tO2[c] = sample(o2, sx, sy)
-                tP[c] = pv[c]
             }
         }
         for (y in 0 until ah) {
             for (x in 0 until aw) {
                 val c = y * aw + x
                 if (blocked[c]) continue
-                var sVx = 0f; var sVy = 0f; var sO = 0f; var sP = 0f; var n = 0
-                if (x > 0 && !blocked[c - 1]) { sVx += tVx[c - 1]; sVy += tVy[c - 1]; sO += tO2[c - 1]; sP += tP[c - 1]; n++ }
-                if (x < aw - 1 && !blocked[c + 1]) { sVx += tVx[c + 1]; sVy += tVy[c + 1]; sO += tO2[c + 1]; sP += tP[c + 1]; n++ }
-                if (y > 0 && !blocked[c - aw]) { sVx += tVx[c - aw]; sVy += tVy[c - aw]; sO += tO2[c - aw]; sP += tP[c - aw]; n++ }
-                if (y < ah - 1 && !blocked[c + aw]) { sVx += tVx[c + aw]; sVy += tVy[c + aw]; sO += tO2[c + aw]; sP += tP[c + aw]; n++ }
-                if (n > 0) {
-                    val inv = 1f / n
-                    vx[c] = tVx[c] * 0.65f + sVx * inv * 0.35f
-                    vy[c] = tVy[c] * 0.65f + sVy * inv * 0.35f
-                    o2[c] = tO2[c] * 0.75f + sO * inv * 0.25f   // кислород быстро перемешивается
-                    pv[c] = tP[c] * 0.8f + sP * inv * 0.2f
-                } else {
-                    vx[c] = tVx[c]; vy[c] = tVy[c]; o2[c] = tO2[c]
-                }
-                // слабые остатки движения гасим, чтобы воздух успокаивался; битые числа сбрасываем
-                if (abs(vx[c]) < 0.03f || !vx[c].isFinite()) vx[c] = 0f
-                if (abs(vy[c]) < 0.03f || !vy[c].isFinite()) vy[c] = 0f
-                if (!pv[c].isFinite()) pv[c] = 0f
+                var sO = 0f; var n = 0
+                if (x > 0 && !blocked[c - 1]) { sO += tO2[c - 1]; n++ }
+                if (x < aw - 1 && !blocked[c + 1]) { sO += tO2[c + 1]; n++ }
+                if (y > 0 && !blocked[c - aw]) { sO += tO2[c - aw]; n++ }
+                if (y < ah - 1 && !blocked[c + aw]) { sO += tO2[c + aw]; n++ }
+                vx[c] = tVx[c] * V_LOSS
+                vy[c] = tVy[c] * V_LOSS
+                o2[c] = if (n > 0) tO2[c] * 0.85f + sO / n * 0.15f else tO2[c]
+                if (abs(vx[c]) < 0.01f || !vx[c].isFinite()) vx[c] = 0f
+                if (abs(vy[c]) < 0.01f || !vy[c].isFinite()) vy[c] = 0f
                 if (!o2[c].isFinite()) o2[c] = O2_NORMAL
             }
+        }
+    }
+
+    /**
+     * Проекция: подбираем давление так, чтобы из каждой клетки вытекало ровно столько, сколько в ней
+     * рождается газа (взрыв, кипение, горение), — остальной воздух несжимаем. ∇²φ = ∇·u − S, u −= ∇φ.
+     * Края мира — стены комнаты; в замкнутом объёме лишний газ поднимает давление всего объёма.
+     */
+    private fun project() {
+        val dx = Units.CELL * cs
+        val dt = Units.DT
+        // источник по объёмам: средний поднимает давление объёма, остаток раздаётся течением
+        java.util.Arrays.fill(regSrc, 0, regions, 0f)
+        for (c in 0 until an) { val r = region[c]; if (r >= 0) regSrc[r] += src[c] }
+        for (r in 0 until regions) {
+            val mean = if (regN[r] > 0) regSrc[r] / regN[r] else 0f
+            regSrc[r] = mean
+            // ΔP/P = ΔV/V: газу некуда деться — растёт давление объёма (а в комнате — быстро уходит в глубину)
+            regP[r] = (regP[r] + mean * Units.P_ATM / 1000f).coerceIn(P_MIN, P_MAX)
+            regP[r] *= if (r == openRegion) 0.9f else 0.9995f
+        }
+        for (y in 0 until ah) for (x in 0 until aw) {
+            val c = y * aw + x
+            if (blocked[c]) { rhs[c] = 0f; continue }
+            // грани в стену и за край мира — непроницаемы
+            if (x == aw - 1 || blocked[c + 1]) vx[c] = 0f
+            if (y == ah - 1 || blocked[c + aw]) vy[c] = 0f
+        }
+        for (y in 0 until ah) for (x in 0 until aw) {
+            val c = y * aw + x
+            if (blocked[c]) continue
+            val div = (vx[c] - (if (x > 0) vx[c - 1] else 0f) + vy[c] - (if (y > 0) vy[c - aw] else 0f)) / dx
+            val r = region[c]
+            val s0 = src[c] - (if (r >= 0) regSrc[r] else 0f)
+            rhs[c] = (div - s0 / dt) * dx * dx
+        }
+        // SOR с тёплым стартом; соседи и их число считаем один раз
+        for (y in 0 until ah) for (x in 0 until aw) {
+            val c = y * aw + x
+            var m = 0; var n = 0
+            if (!blocked[c]) {
+                if (x > 0 && !blocked[c - 1]) { m = m or 1; n++ }
+                if (x < aw - 1 && !blocked[c + 1]) { m = m or 2; n++ }
+                if (y > 0 && !blocked[c - aw]) { m = m or 4; n++ }
+                if (y < ah - 1 && !blocked[c + aw]) { m = m or 8; n++ }
+            }
+            nbMask[c] = m
+            invN[c] = if (n > 0) 1f / n else 0f
+        }
+        val omega = 1.75f
+        for (it in 0 until ITER) {
+            for (c in 0 until an) {
+                val m = nbMask[c]
+                if (m == 0) continue
+                var sum = 0f
+                if (m and 1 != 0) sum += phi[c - 1]
+                if (m and 2 != 0) sum += phi[c + 1]
+                if (m and 4 != 0) sum += phi[c - aw]
+                if (m and 8 != 0) sum += phi[c + aw]
+                val v = (sum - rhs[c]) * invN[c]
+                phi[c] += omega * (v - phi[c])
+            }
+        }
+        // u −= ∇φ, давление p = ρ·φ/Δt
+        for (y in 0 until ah) for (x in 0 until aw) {
+            val c = y * aw + x
+            if (blocked[c]) { vx[c] = 0f; vy[c] = 0f; pv[c] = 0f; continue }
+            if (x < aw - 1 && !blocked[c + 1]) vx[c] = (vx[c] - (phi[c + 1] - phi[c]) / dx).coerceIn(-V_MAX, V_MAX)
+            if (y < ah - 1 && !blocked[c + aw]) vy[c] = (vy[c] - (phi[c + aw] - phi[c]) / dx).coerceIn(-V_MAX, V_MAX)
+            val r = region[c]
+            val dyn = 1.2f * phi[c] / dt / 1000f
+            pv[c] = (dyn + (if (r >= 0) regP[r] else 0f)).coerceIn(P_MIN, P_MAX)
+            if (!phi[c].isFinite()) phi[c] = 0f
+        }
+        // среднее φ в объёме не важно — держим около нуля
+        src.fill(0f)
+    }
+
+    private var openRegion = -1
+
+    /**
+     * Воздух под открытым небом комнаты (над ним до верха мира нет потолка). Мир — срез 1 см: тёплый воздух
+     * здесь расходится и вглубь комнаты и остывает, а под куполом шара, в печи, под столом — держится.
+     */
+    val exposed = BooleanArray(an)
+
+    private fun findExposed() {
+        for (x in 0 until aw) {
+            var sky = true
+            for (y in 0 until ah) {
+                val c = y * aw + x
+                if (blocked[c]) sky = false
+                exposed[c] = sky && open[c]
+            }
+        }
+    }
+
+    /** Связные объёмы воздуха (комната — тот, что касается края мира). Давление переносим из старой разметки. */
+    private fun labelRegions() {
+        val oldReg = region.copyOf()
+        val oldP = regP.copyOf()
+        java.util.Arrays.fill(region, -1)
+        regions = 0
+        openRegion = -1
+        for (c0 in 0 until an) {
+            if (blocked[c0] || region[c0] >= 0) continue
+            val r = regions++
+            if (r >= regN.size) { regN = regN.copyOf(r * 2); regSrc = regSrc.copyOf(r * 2); regP = regP.copyOf(r * 2) }
+            var head = 0; var tail = 0
+            queue[tail++] = c0; region[c0] = r
+            var n = 0; var pSum = 0f; var isOpen = false
+            while (head < tail) {
+                val c = queue[head++]
+                n++
+                val o = oldReg[c]
+                if (o >= 0 && o < oldP.size) pSum += oldP[o]
+                if (open[c]) isOpen = true
+                val x = c % aw
+                if (x > 0 && !blocked[c - 1] && region[c - 1] < 0) { region[c - 1] = r; queue[tail++] = c - 1 }
+                if (x < aw - 1 && !blocked[c + 1] && region[c + 1] < 0) { region[c + 1] = r; queue[tail++] = c + 1 }
+                if (c >= aw && !blocked[c - aw] && region[c - aw] < 0) { region[c - aw] = r; queue[tail++] = c - aw }
+                if (c + aw < an && !blocked[c + aw] && region[c + aw] < 0) { region[c + aw] = r; queue[tail++] = c + aw }
+            }
+            regN[r] = n
+            regP[r] = if (n > 0) pSum / n else 0f
+            if (isOpen && openRegion < 0) openRegion = r
         }
     }
 
@@ -409,36 +492,29 @@ class Air(private val w: World) {
         o2[c] = maxOf(0f, o2[c] - kg / airMass * 0.9f)
     }
 
-    /** Газ взрыва или кисть давления. */
+    /**
+     * Газ взрыва, горения, кипения или кисть давления: kPa — насколько газ «распёр» клетку воздуха
+     * (Δp/p = ΔV/V). Течение разносит лишний объём, в замкнутом объёме растёт давление.
+     */
     fun addPressure(i: Int, kPa: Float) {
-        val c = cellOf(i)
+        var c = cellOf(i)
         if (blocked[c]) {
-            // взрыв внутри завала давит на соседей
-            spreadToNeighbors(c, kPa)
-            return
+            // взрыв внутри завала выходит в ближайший воздух
+            val x = c % aw
+            c = when {
+                c >= aw && !blocked[c - aw] -> c - aw
+                x > 0 && !blocked[c - 1] -> c - 1
+                x < aw - 1 && !blocked[c + 1] -> c + 1
+                c + aw < an && !blocked[c + aw] -> c + aw
+                else -> return
+            }
         }
-        pv[c] = (pv[c] + kPa).coerceIn(P_MIN, P_MAX)
-    }
-
-    private fun spreadToNeighbors(c: Int, kPa: Float) {
-        val x = c % aw
-        val y = c / aw
-        var n = 0
-        if (x > 0 && !blocked[c - 1]) n++
-        if (x < aw - 1 && !blocked[c + 1]) n++
-        if (y > 0 && !blocked[c - aw]) n++
-        if (y < ah - 1 && !blocked[c + aw]) n++
-        if (n == 0) { pv[c] = (pv[c] + kPa).coerceIn(P_MIN, P_MAX); return }
-        val part = kPa / n
-        if (x > 0 && !blocked[c - 1]) pv[c - 1] = (pv[c - 1] + part).coerceIn(P_MIN, P_MAX)
-        if (x < aw - 1 && !blocked[c + 1]) pv[c + 1] = (pv[c + 1] + part).coerceIn(P_MIN, P_MAX)
-        if (y > 0 && !blocked[c - aw]) pv[c - aw] = (pv[c - aw] + part).coerceIn(P_MIN, P_MAX)
-        if (y < ah - 1 && !blocked[c + aw]) pv[c + aw] = (pv[c + aw] + part).coerceIn(P_MIN, P_MAX)
+        src[c] += kPa / 101.325f * SRC_GAIN
     }
 
     /** Кисть давления: круг радиусом r мелких клеток. */
     fun brushPressure(cx: Int, cy: Int, r: Int, kPa: Float) {
-        forCells(cx, cy, r) { c -> if (!blocked[c]) pv[c] = (pv[c] + kPa).coerceIn(P_MIN, P_MAX) }
+        forCells(cx, cy, r) { c -> if (!blocked[c]) src[c] += kPa / 101.325f * 0.5f }
     }
 
     /** Кисть ветра: подтягивает скорость воздуха к скорости пальца. */
@@ -483,16 +559,13 @@ class Air(private val w: World) {
         const val O2_NORMAL = 0.209f
         const val DEPTH = 2f             // объём воздуха на клетку среза (топливо тоже в срезе — печь задыхается честно)
         const val O2_FLAME_MIN = 0.14f   // ниже — пламя гаснет
-        const val FAN_SPEED = 4f         // м/с
-        const val BUOYANCY = 0.35f
-        const val K_P = 0.3f
-        const val K_V = 0.4f
-        const val P_LOSS = 0.99f
-        const val V_LOSS = 0.97f         // порыв ветра стихает за 1–2 секунды
+        const val FAN_SPEED = 6f         // м/с, как у настольного вентилятора
+        const val V_LOSS = 0.99f         // вязкость и турбулентность: порыв стихает за несколько секунд
         const val P_MIN = -100f
         const val P_MAX = 400f
-        const val V_MAX = 30f
-        const val JET_DP = 0.8f          // кПа: меньше — обычный ветер
-        const val JET_K = 0.3f           // игровой масштаб скорости струи (звук в игре медленнее)
+        const val V_MAX = 60f
+        const val ITER = 16
+        /** Мир — срез 1 см: газ взрыва расходится и вглубь, в срезе остаётся лишь часть объёма. */
+        const val SRC_GAIN = 4f
     }
 }

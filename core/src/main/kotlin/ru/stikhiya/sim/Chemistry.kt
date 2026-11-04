@@ -427,7 +427,7 @@ class Chemistry(private val w: World, private val air: Air) {
                 if (gy > 0f) air.addPressure(i, gy * 2f)
                 // продукты горения горячее в разы — расширяются; в трубе с соплом это реактивная струя
                 val dv = a0 * ((ft + Units.KELVIN) / (t + Units.KELVIN) - 1f)
-                air.addPressure(i, dv / (air.cs * air.cs) * 101.325f * EXPLOSION_SCALE)
+                air.addPressure(i, dv / (air.cs * air.cs) * 101.325f / Air.SRC_GAIN)
             }
         }
     }
