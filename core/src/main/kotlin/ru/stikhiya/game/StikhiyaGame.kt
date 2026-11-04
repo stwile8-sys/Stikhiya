@@ -633,7 +633,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             if (st.tool == Tool.FIX) {
                 val cx = cellX(x); val cy = cellY(y)
                 val id = sim.bodies.bodyAt(cx.toInt(), cy.toInt())
-                if (id == 0) say("Крепление: коснитесь тела (нарисованного при «Твёрдое: падает»)")
+                if (id == 0) say("Крепление: коснитесь тела (сделайте предмет физичным инструментом «Физика»)")
                 else say(if (sim.bodies.toggleFix(id, 0, cx, cy)) "Тело закреплено — коснитесь ещё раз, чтобы снять" else "Крепление снято")
                 return true
             }

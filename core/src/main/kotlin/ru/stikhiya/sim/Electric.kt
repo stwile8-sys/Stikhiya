@@ -302,7 +302,7 @@ class Electric(private val w: World, private val air: Air) {
     companion object {
         const val VOLTAGE = 12f
         const val ACCU_VOLTAGE = 24f
-        const val PELTIER = 2f          // В — коэффициент Пельтье модуля (Q = Π·I)
+        const val PELTIER = 1.5f         // В — коэффициент Пельтье модуля (Q = Π·I)
         const val G_MAX = 1e4f      // См: металлический провод — почти идеальный (иначе решение не сходится)
         const val G_LEAK = 1e-6f    // утечка в «землю», чтобы оторванный кусок провода имел потенциал
         const val ITER = 60

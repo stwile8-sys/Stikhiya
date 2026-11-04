@@ -638,7 +638,7 @@ object NewSubstances {
                 conductivity = 15f, colorVar = 0.02f, elec = 300f, hotAt = 1400f, hotTo = "molten_steel",
                 hotLatent = 2.7e5f, description = "нагреватель: спираль в стальной трубке"),
             Substance("peltier", "Элемент Пельтье", P.SOLID, C.SPECIAL, 0xE8E8F0, density = 3000f, heatCapacity = 800f,
-                conductivity = 1.5f, colorVar = 0f, elec = 2000f,
+                conductivity = 1.5f, colorVar = 0f, elec = 25f,
                 description = "с током верх греется, низ охлаждается"),
             Substance("led", "Светодиод", P.SOLID, C.SPECIAL, 0x5060E0, density = 2000f, heatCapacity = 800f,
                 conductivity = 1f, colorVar = 0f, elec = 20f, description = "светит от тока и почти не греется"),

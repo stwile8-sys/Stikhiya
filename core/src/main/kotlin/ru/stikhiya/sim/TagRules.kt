@@ -52,7 +52,7 @@ object TagRules {
                 val fine = if (s.phase == Phase.POWDER) 5f else 1f
                 when {
                     noble && !aqua -> {}
-                    noble && aqua -> add(R(k, a.key, 0.2f, toA = "air", partA = 0.1f, gas = "no2", heat = 100f))
+                    noble && aqua -> add(R(k, a.key, 1f, toA = "air", partA = 0.25f, gas = "no2", heat = 100f))
                     passive && !strong -> {}
                     a.key == "hno3" && ((tg and T.PASSIVE) != 0) -> {}   // пассивация в азотной кислоте
                     oxid && a.key != "h2so4" -> add(R(k, a.key, 0.3f * fine, toA = "air", partA = 0.12f, toB = "water",
@@ -63,6 +63,11 @@ object TagRules {
                         gas = "hydrogen", heat = 30f))
                 }
             }
+            // ---- медь, серебро и их сплавы: только кислоты-окислители (азотная, царская водка) ----
+            if (k in listOf("copper", "silver", "brass", "bronze", "copper_dust", "cupronickel", "molten_copper"))
+                for (a in acids) if (has(a, T.OXIDIZER) && a.key != "h2so4")
+                    add(R(k, a.key, if (s.phase == Phase.POWDER) 3f else 0.8f, toA = "air", partA = 0.25f, toB = "water",
+                        probB = 0.05f, gas = "no2", heat = 150f))
             // ---- щелочной металл + вода → водород и тепло (Cs, Rb, K, Ba воспламеняются) ----
             if ((tg and T.ALKALI) != 0 && condensed) for (wk in waters) {
                 val violent = k in listOf("cesium", "rubidium", "potassium", "molten_cesium", "molten_rubidium",
@@ -76,6 +81,8 @@ object TagRules {
             if ((tg and T.AMPHOTERIC) != 0 && condensed) for (b in bases) if (b.key == "lye" || b.key == "bleach")
                 add(R(k, b.key, if (s.phase == Phase.POWDER) 1.2f else 0.2f, toA = "air", partA = 0.12f,
                     heat = 150f, gas = "hydrogen", gasAmt = 2f))
+            // ---- хлорка + кислота → хлор ----
+            if (k == "bleach") for (a in acids) add(R(k, a.key, 1f, toA = "water", partA = 0.3f, gas = "chlorine", heat = 30f))
             // ---- нейтрализация: щёлочь (жидкая/твёрдая) + кислота ----
             if ((tg and T.BASE) != 0 && condensed) for (a in acids) {
                 val h = if (has(a, T.STRONG_ACID)) 400f else 120f
@@ -87,8 +94,6 @@ object TagRules {
                 for (g in gasesAcid) add(R(k, g.key, 3f, toA = "smoke", toB = "air", heat = 50f))
                 add(R(k, "hcl", 2f, toA = "smoke", heat = 50f))
             }
-            // ---- хлорка + кислота → хлор ----
-            if (k == "bleach") for (a in acids) add(R(k, a.key, 1f, toA = "water", partA = 0.3f, gas = "chlorine", heat = 30f))
             // ---- конц. серная кислота обугливает органику ----
             if ((tg and T.ORGANIC) != 0 && condensed && s.phase != Phase.LIQUID)
                 add(R(k, "h2so4", 0.15f, toA = "charcoal", toB = "dilute_h2so4", probB = 0.1f, heat = 300f, gas = "steam"))

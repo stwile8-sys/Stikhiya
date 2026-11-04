@@ -44,7 +44,10 @@ class WorldRenderer(private val w: World, private val air: Air) {
     fun setPlain(c: Int) {
         bgR = ((c shr 16) and 0xFF) / 255f; bgG = ((c shr 8) and 0xFF) / 255f; bgB = (c and 0xFF) / 255f
         BG = pack(bgR, bgG, bgB)
+        lightBg = bgR + bgG + bgB > 1.5f
     }
+    /** Светлый фон: огонь рисуем плотнее, свечение — слабее (иначе всё выцветает). */
+    private var lightBg = true
     private fun pack(r: Float, g: Float, b: Float) =
         ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
 
@@ -140,9 +143,10 @@ class WorldRenderer(private val w: World, private val air: Air) {
         fireLight = total
         blur(glR, tmpR); blur(glG, tmpG); blur(glB, tmpB)
         for (k in glowColors.indices) {
-            val r = (glR[k] * 0.9f).coerceIn(0f, 1f)
-            val g = (glG[k] * 0.9f).coerceIn(0f, 1f)
-            val b = (glB[k] * 0.9f).coerceIn(0f, 1f)
+            val gk = if (lightBg) 0.45f else 0.9f
+            val r = (glR[k] * gk).coerceIn(0f, 1f)
+            val g = (glG[k] * gk).coerceIn(0f, 1f)
+            val b = (glB[k] * gk).coerceIn(0f, 1f)
             glowColors[k] = ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
         }
         val buf = glowPix.pixels
@@ -337,7 +341,8 @@ class WorldRenderer(private val w: World, private val air: Air) {
             g += (((fc shr 8) and 0xFF) / 255f * flicker - g) * m
             b += ((fc and 0xFF) / 255f * flicker - b) * m
         }
-        return rgb(r, g, b, (0.3f + 0.7f * heat).coerceIn(0f, 1f))
+        val fa = (0.3f + 0.7f * heat).coerceIn(0f, 1f)
+        return rgb(r, g, b, if (lightBg) sqrt(fa) else fa)
     }
 
     // ---------------- Температура ----------------
