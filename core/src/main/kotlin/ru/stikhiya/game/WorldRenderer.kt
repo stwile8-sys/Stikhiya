@@ -67,6 +67,7 @@ class WorldRenderer(private val w: World, private val air: Air) {
 
     fun update() {
         frame++
+        see = background != null && mode == ViewMode.NORMAL
         val n = w.n
         // каждая полоса красит свои клетки — считаем на всех ядрах
         val bands = Parallel.bands
@@ -176,6 +177,13 @@ class WorldRenderer(private val w: World, private val air: Air) {
     }
 
     fun draw(batch: SpriteBatch, x: Float, y: Float, width: Float, height: Float) {
+        val bg = background
+        if (bg != null && mode == ViewMode.NORMAL) {
+            // картинка приглушена, чтобы вещества хорошо читались
+            batch.setColor(0.5f, 0.5f, 0.52f, 1f)
+            batch.draw(bg, x, y, width, height)
+            batch.setColor(1f, 1f, 1f, 1f)
+        }
         batch.draw(texture, x, y, width, height)
         if (mode == ViewMode.NORMAL && glowOn) {
             // свечение складывается с картинкой: огонь светится и подсвечивает соседей
@@ -194,9 +202,10 @@ class WorldRenderer(private val w: World, private val air: Air) {
             // горячий воздух чуть светится — видно марево над огнём
             if (t > 150f) {
                 val k = ((t - 150f) / 1500f).coerceIn(0f, 0.35f)
+                if (see) return rgb(1f, 0.35f, 0.05f, k * 1.6f)
                 return rgb(bgR + k * 0.9f, bgG + k * 0.25f, bgB, 1f)
             }
-            return BG
+            return if (see) 0 else BG
         }
         val ph = Mat.phase[id]
         val s = w.shade[i] / 128f * colorVar[id]
@@ -390,18 +399,28 @@ class WorldRenderer(private val w: World, private val air: Air) {
     /** Смешивает цвет с фоном по непрозрачности и упаковывает в 0xRRGGBBAA. */
     private fun rgb(r0: Float, g0: Float, b0: Float, a: Float): Int {
         val k = a.coerceIn(0f, 1f)
+        if (see) {
+            // под миром картинка: отдаём цвет с прозрачностью, фон просвечивает сквозь воду, газ и пламя
+            return ((r0.coerceIn(0f, 1f) * 255f).toInt() shl 24) or ((g0.coerceIn(0f, 1f) * 255f).toInt() shl 16) or
+                ((b0.coerceIn(0f, 1f) * 255f).toInt() shl 8) or (k * 255f).toInt()
+        }
         val r = (bgR + (r0 - bgR) * k).coerceIn(0f, 1f)
         val g = (bgG + (g0 - bgG) * k).coerceIn(0f, 1f)
         val b = (bgB + (b0 - bgB) * k).coerceIn(0f, 1f)
         return ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
     }
 
-    private val BG = rgb(bgR, bgG, bgB, 1f)
+    private val BG = ((bgR * 255f).toInt() shl 24) or ((bgG * 255f).toInt() shl 16) or ((bgB * 255f).toInt() shl 8) or 0xFF
+
+    /** Фоновая картинка за миром (null — тёмный фон). */
+    var background: Texture? = null
+    @Volatile private var see = false
 
     fun dispose() {
         texture.dispose()
         pixmap.dispose()
         glowTexture.dispose()
+        background?.dispose()
         glowPix.dispose()
     }
 }

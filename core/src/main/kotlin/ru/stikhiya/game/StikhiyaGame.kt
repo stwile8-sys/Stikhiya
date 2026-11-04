@@ -5,6 +5,7 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Input
 import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator
@@ -105,6 +106,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         buildStartScene()
         sound.muted = !prefs().getBoolean("sound", true)
         renderer.glowOn = prefs().getBoolean("glow", true)
+        setBackground(prefs().getInteger("background", 1))
         ui.toast("«Меню» справа: готовые примеры (печь, плотина, термит, натрий…) и сохранение сцен. «Поиск» снизу — найти вещество.", 8f)
         sound.start()
     }
@@ -190,6 +192,26 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         ui.toast(ex.title + ". " + tip, 12f)
     }
 
+    // ---------------- Фон ----------------
+
+    private val bgNames = arrayOf("тёмный", "лаборатория", "луг", "ночь в горах", "кухня")
+    private val bgFiles = arrayOf("", "lab", "meadow", "night", "kitchen")
+    private var bgIndex = 0
+
+    private fun setBackground(k: Int) {
+        bgIndex = k.coerceIn(0, bgNames.size - 1)
+        renderer.background?.dispose()
+        renderer.background = null
+        if (bgIndex > 0) {
+            try {
+                renderer.background = Texture(Gdx.files.internal("backgrounds/${bgFiles[bgIndex]}.png")).apply {
+                    setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+                }
+            } catch (e: Exception) { bgIndex = 0 }
+        }
+        prefs().putInteger("background", bgIndex).flush()
+    }
+
     private fun menuRows(): List<List<MenuEntry>> {
         readSlots()
         val rows = ArrayList<List<MenuEntry>>()
@@ -218,7 +240,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 renderer.glowOn = !renderer.glowOn
                 prefs().putBoolean("glow", renderer.glowOn).flush()
             },
-            MenuEntry({ if (sound.muted) "Звук: выкл" else "Звук: вкл" }, { !sound.muted }) { toggleSound() }
+            MenuEntry({ if (sound.muted) "Звук: выкл" else "Звук: вкл" }, { !sound.muted }) { toggleSound() },
+            MenuEntry({ "Фон: ${bgNames[bgIndex]}" }, { bgIndex > 0 }) { setBackground((bgIndex + 1) % bgNames.size) }
         )
         rows += listOf(MenuEntry({ "Мир" }, header = true))
         rows += listOf(

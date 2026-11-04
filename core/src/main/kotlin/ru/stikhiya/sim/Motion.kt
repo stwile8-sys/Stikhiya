@@ -74,7 +74,10 @@ class Motion(private val w: World, private val air: Air) {
         val fill = if (por > 0f && w.mixId[i].toInt() != 0) w.mix[i] / (por * w.amt[i]) else 0f
         val vth = 1.5f * sqrt(Mat.density[id] / 200f) * (1f + 8f * fill)
         if (blow(i, x, y, vth) >= 0) return
-        val rho = w.cellDensity(i)
+        // в жидкости важна плотность самих зёрен, а не насыпная (сахар 850 кг/м³ насыпью, но кристалл — 1590 —
+        // тонет)
+        val g = Mat.grainDensity[id]
+        val rho = if (g > 0f) maxOf(g, w.cellDensity(i)) else w.cellDensity(i)
         w.vy[i] = minOf(w.vy[i] + Units.G, Units.MAX_FALL)
         var n = steps(w.vy[i])
         if (n < 1) n = 1
