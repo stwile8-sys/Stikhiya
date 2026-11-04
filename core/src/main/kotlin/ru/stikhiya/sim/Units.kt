@@ -30,9 +30,13 @@ object Units {
 enum class Phase { GAS, FLAME, LIQUID, POWDER, SOLID }
 
 enum class Category(val title: String) {
-    SOLID("Твёрдые"),
     POWDER("Порошки"),
     LIQUID("Жидкости"),
     GAS("Газы"),
+    SOLID("Твёрдые"),
+    METAL("Металлы"),
+    STONE("Камни"),
+    ORGANIC("Органика"),
+    FOOD("Еда"),
     SPECIAL("Особые")
 }

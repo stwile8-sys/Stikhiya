@@ -184,6 +184,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     override fun render() {
         val dt = Gdx.graphics.deltaTime
         sim.chemSpeed = st.chemSpeeds[st.chemIndex]
+        Brush.tapSource = st.tapSource
 
         applyInput()
 
@@ -323,7 +324,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             val f = k / n.toFloat()
             val x = lastCellX + (cx - lastCellX) * f
             val y = lastCellY + (cy - lastCellY) * f
-            val rec = if (st.tool == Tool.DRAW && st.solidFalls && Mat.isSolid(st.substance)) stroke else null
+            val rec = if (st.tool == Tool.DRAW && st.solidFalls && Mat.isSolid(st.substance) && !Brush.isFixed(st.substance)) stroke else null
             Brush.apply(world, st.tool, st.substance, x.toInt(), y.toInt(), st.brush, rec)
         }
         lastCellX = cx

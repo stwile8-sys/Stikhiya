@@ -3,6 +3,7 @@ package ru.stikhiya.game
 import ru.stikhiya.sim.Category
 import ru.stikhiya.sim.Mat
 import ru.stikhiya.sim.Tool
+import ru.stikhiya.sim.Brush
 
 /** Выбор игрока: инструмент, вещество, размер кисти, скорость времени. */
 class GameState {
@@ -36,6 +37,15 @@ class GameState {
 
     /** Последнее выбранное вещество в каждой категории. */
     val lastInCategory = HashMap<Category, Int>()
+
+    /** Что будет лить кран: последнее выбранное обычное вещество. */
+    var tapSource = Mat.id("water")
+
+    fun pick(id: Int) {
+        substance = id
+        tool = Tool.DRAW
+        if (!Brush.isFixed(id) && !Mat[id].key.startsWith("fan")) tapSource = id
+    }
 
     /** Поиск вещества по названию (null — показываем категорию). */
     var search: String? = null

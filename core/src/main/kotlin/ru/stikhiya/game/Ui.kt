@@ -284,7 +284,17 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         forEachTab { r, idx -> centered(batch, small, tabTitle(idx), r, r.y + r.h / 2f, cText) }
         forEachChip { r, id ->
             small.color = cText
-            text(batch, small, if (id < 0) chipTool(id).title else Mat[id].name, r.x + 16f * u, r.y + r.h / 2f)
+            val name = when {
+                id < 0 -> chipTool(id).title
+                Mat[id].key == "tap" -> "Кран: " + Mat[st.tapSource].name.lowercase()
+                else -> Mat[id].name
+            }
+            layoutText.setText(small, name)
+            val sp = if (layoutText.width > r.w - 18f * u) splitPoint(name) else -1
+            if (sp > 0) {
+                text(batch, small, name.substring(0, sp), r.x + 16f * u, r.y + r.h * 0.3f)
+                text(batch, small, name.substring(sp + 1), r.x + 16f * u, r.y + r.h * 0.72f)
+            } else text(batch, small, name, r.x + 16f * u, r.y + r.h / 2f)
         }
         // строка состояния — в верхнем правом углу мира
         val hud = callbacks.hudText()
@@ -366,6 +376,13 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
     }
 
     private fun chipW() = 92f * u
+
+    /** Пробел ближе всего к середине — название в две строки. */
+    private fun splitPoint(s: String): Int {
+        var best = -1
+        for (k in s.indices) if (s[k] == ' ' && (best < 0 || abs(k - s.length / 2) < abs(best - s.length / 2))) best = k
+        return best
+    }
 
     private inline fun forEachChip(f: (Rect, Int) -> Unit) {
         val list = chips()
@@ -451,7 +468,7 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         when (dragKind) {
             1 -> forEachChip { r, id ->
                 if (r.contains(x, y)) {
-                    if (id < 0) st.tool = chipTool(id) else { st.substance = id; st.tool = Tool.DRAW }
+                    if (id < 0) st.tool = chipTool(id) else st.pick(id)
                 }
             }
             2 -> forEachTab { r, idx ->

@@ -15,21 +15,21 @@ object Substances {
             heatCapacity = 1005f, conductivity = 0.026f, emissivity = 0f, inPalette = false),
 
         // ---------- Твёрдые ----------
-        Substance("stone", "Камень", P.SOLID, C.SOLID, 0x7A7C82, density = 2600f, heatCapacity = 790f,
+        Substance("stone", "Камень", P.SOLID, C.STONE, 0x7A7C82, density = 2600f, heatCapacity = 790f,
             conductivity = 2.5f, colorVar = 0.07f, hotAt = 1200f, hotTo = "lava", hotLatent = 4.0e5f),
         Substance("brick", "Кирпич", P.SOLID, C.SOLID, 0xA04A32, density = 1900f, heatCapacity = 840f,
             conductivity = 0.7f, colorVar = 0.06f),
-        Substance("iron", "Железо", P.SOLID, C.SOLID, 0x8E959E, density = 7870f, heatCapacity = 450f,
+        Substance("iron", "Железо", P.SOLID, C.METAL, 0x8E959E, density = 7870f, heatCapacity = 450f,
             conductivity = 80f, colorVar = 0.03f, hotAt = 1538f, hotTo = "molten_iron", hotLatent = 2.47e5f),
-        Substance("copper", "Медь", P.SOLID, C.SOLID, 0xC57B4F, density = 8960f, heatCapacity = 385f,
+        Substance("copper", "Медь", P.SOLID, C.METAL, 0xC57B4F, density = 8960f, heatCapacity = 385f,
             conductivity = 400f, colorVar = 0.03f, hotAt = 1085f, hotTo = "molten_copper", hotLatent = 2.05e5f),
         Substance("glass", "Стекло", P.SOLID, C.SOLID, 0xBFE3EE, density = 2500f, heatCapacity = 840f,
             conductivity = 1.0f, alpha = 0.35f, colorVar = 0.01f, hotAt = 1400f, hotTo = "molten_glass"),
-        Substance("wood", "Дерево", P.SOLID, C.SOLID, 0x8B5A2E, density = 700f, heatCapacity = 1700f,
+        Substance("wood", "Дерево", P.SOLID, C.ORGANIC, 0x8B5A2E, density = 700f, heatCapacity = 1700f,
             conductivity = 0.17f, colorVar = 0.08f, flashPoint = 300f, autoIgnition = 400f, burnTime = 40f,
             burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.25f, smoke = 0.08f, flameTemp = 1000f,
             charAt = 350f, charTo = "charcoal", oxygenNeed = 1.4f, fineness = 0.3f),
-        Substance("charcoal", "Уголь", P.SOLID, C.SOLID, 0x2A2826, density = 400f, heatCapacity = 1000f,
+        Substance("charcoal", "Древесный уголь", P.SOLID, C.ORGANIC, 0x2A2826, density = 400f, heatCapacity = 1000f,
             conductivity = 0.1f, colorVar = 0.05f, flashPoint = 350f, autoIgnition = 450f, burnTime = 80f,
             burnHeat = 2.9e7f, burnTo = "ash", burnResidue = 0.15f, smoke = 0f, flameTemp = 1100f, oxygenNeed = 2.67f,
             fineness = 0.15f),
@@ -43,7 +43,7 @@ object Substances {
             conductivity = 1.7f, colorVar = 0.06f),
         Substance("gypsum_set", "Гипс застывший", P.SOLID, C.SOLID, 0xEDEAE2, density = 1100f, heatCapacity = 1090f,
             conductivity = 0.4f, colorVar = 0.03f, hotAt = 150f, hotTo = "gypsum", hotLatent = 3.0e5f),
-        Substance("hard_candy", "Леденец", P.SOLID, C.SOLID, 0xC27A2A, density = 1500f, heatCapacity = 1300f,
+        Substance("hard_candy", "Леденец", P.SOLID, C.FOOD, 0xC27A2A, density = 1500f, heatCapacity = 1300f,
             conductivity = 0.3f, alpha = 0.85f, colorVar = 0.02f, hotAt = 150f, hotTo = "caramel"),
 
         // ---------- Порошки ----------
@@ -55,7 +55,7 @@ object Substances {
         Substance("salt", "Соль", P.POWDER, C.POWDER, 0xF1F1EE, density = 1200f, grainDensity = 2160f,
             heatCapacity = 880f, conductivity = 0.6f, friction = 0.45f, colorVar = 0.03f,
             hotAt = 801f, hotTo = "molten_salt", hotLatent = 4.82e5f),
-        Substance("sugar", "Сахар", P.POWDER, C.POWDER, 0xFBF8F0, density = 850f, grainDensity = 1590f,
+        Substance("sugar", "Сахар", P.POWDER, C.FOOD, 0xFBF8F0, density = 850f, grainDensity = 1590f,
             heatCapacity = 1250f, conductivity = 0.15f, friction = 0.45f, colorVar = 0.02f,
             hotAt = 186f, hotTo = "caramel", hotLatent = 1.34e5f),
         Substance("sawdust", "Опилки", P.POWDER, C.POWDER, 0xCDA36C, density = 200f, heatCapacity = 1700f,
@@ -106,7 +106,7 @@ object Substances {
         Substance("molten_salt", "Расплав соли", P.LIQUID, C.LIQUID, 0xF4E6C8, density = 1556f, heatCapacity = 1100f,
             conductivity = 0.5f, spawnTemp = 850f, spread = 4, wets = false,
             coldAt = 801f, coldTo = "salt", coldLatent = 4.82e5f),
-        Substance("caramel", "Карамель", P.LIQUID, C.LIQUID, 0xB8651C, density = 1400f, heatCapacity = 1600f,
+        Substance("caramel", "Карамель", P.LIQUID, C.FOOD, 0xB8651C, density = 1400f, heatCapacity = 1600f,
             conductivity = 0.3f, alpha = 0.9f, spawnTemp = 190f, spread = 1, viscosity = 0.85f, wets = false,
             coldAt = 70f, coldTo = "hard_candy", hotAt = 250f, hotTo = "charcoal"),
 
@@ -169,10 +169,17 @@ object Substances {
 
     val solubility: List<Solubility> = listOf(
         Solubility("salt", "water", sat20 = 0.36f, tempCoef = 0.0011f, time = 3f),
-        Solubility("sugar", "water", sat20 = 2.0f, tempCoef = 0.018f, time = 5f)
+        Solubility("sugar", "water", sat20 = 2.0f, tempCoef = 0.018f, time = 5f),
+        Solubility("soda", "water", sat20 = 0.096f, tempCoef = 0.02f, time = 6f),
+        Solubility("coffee", "water", sat20 = 0.03f, tempCoef = 0.05f, time = 4f),
+        Solubility("saltpeter", "water", sat20 = 0.32f, tempCoef = 0.04f, time = 4f),
+        Solubility("salt", "seawater", sat20 = 0.36f, tempCoef = 0.0011f, time = 3f),
+        Solubility("sugar", "milk", sat20 = 1.5f, tempCoef = 0.018f, time = 6f),
+        Solubility("salt", "vinegar", sat20 = 0.3f, tempCoef = 0.001f, time = 4f),
+        Solubility("sugar", "braga", sat20 = 1.8f, tempCoef = 0.018f, time = 6f)
     )
 
-    val all: List<Substance> = base + glued
+    val all: List<Substance> = base + glued + MoreSubstances.list
 
     private fun darken(c: Int, k: Float): Int {
         val r = ((c shr 16 and 0xFF) * k).toInt()

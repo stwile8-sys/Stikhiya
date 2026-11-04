@@ -8,12 +8,13 @@ class Simulator(val world: World) {
     val chemistry = Chemistry(world, air)
     val bodies = Bodies(world, air)
     val hydro = Hydro(world)
+    val reactions = Reactions(world, air)
     var tick = 0
         private set
 
     var chemSpeed: Float
         get() = chemistry.chemSpeed
-        set(v) { chemistry.chemSpeed = v }
+        set(v) { chemistry.chemSpeed = v; reactions.chemSpeed = v }
 
     /** Время мира в секундах. */
     val time: Float get() = tick * Units.DT
@@ -22,6 +23,7 @@ class Simulator(val world: World) {
         tick++
         heat.step()
         chemistry.step()
+        reactions.step()
         air.step()
         bodies.step()
         motion.step(tick)
@@ -74,6 +76,14 @@ object Brush {
         }
     }
 
+    /** Что льёт нарисованный кран (выбирается игроком перед краном). */
+    var tapSource = 0
+    private val tapId = Mat.id("tap")
+    private val drainId = Mat.id("drain")
+
+    /** Неподвижные приборы: не превращаются в падающие тела. */
+    fun isFixed(id: Int) = id == tapId || id == drainId || Mat.isFan[id]
+
     private fun draw(w: World, i: Int, id: Int): Boolean {
         if (w.type[i].toInt() != Mat.AIR) return false
         // порошки сыплются неплотно — так естественнее
@@ -81,6 +91,8 @@ object Brush {
         if (Mat.isGas(id) && id != Mat.FLAME && w.rnd() < 0.5f) return false
         val t = w.temp[i]
         w.put(i, id)
+        Reactions.onSpawn(w, i)
+        if (id == tapId) w.mixId[i] = tapSource.toShort()
         if (id == Mat.FLAME) { w.amt[i] = 6f; return true }
         // газы рисуются при своей температуре, а если она не задана — при температуре воздуха
         if (Mat.isGas(id) && Mat[id].spawnTemp == Units.AMBIENT) w.temp[i] = t

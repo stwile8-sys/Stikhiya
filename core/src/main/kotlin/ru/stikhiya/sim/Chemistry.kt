@@ -369,6 +369,9 @@ class Chemistry(private val w: World, private val air: Air) {
                 w.transform(i, Mat.FLAME)
                 w.temp[i] = ft
                 w.amt[i] = flameAmount(e, ft, t)
+                // водород, метан, пары бензина с воздухом — взрыв: горячие газы распирают воздух
+                val gy = Mat.gasYield[id]
+                if (gy > 0f) air.addPressure(i, gy * 2f)
             }
         }
     }
@@ -417,7 +420,10 @@ class Chemistry(private val w: World, private val air: Air) {
         // горит поверхность: чем больше граней открыто воздуху и чем больше кислорода, тем быстрее
         val faces = if (selfOx) 2 else oxygenFaces(i)
         val rate = if (selfOx) 1f else (o2 / Air.O2_NORMAL).coerceIn(0.3f, 1.2f)
-        val dp = Units.DT / Mat.burnTime[id] * faces * rate
+        var dp = Units.DT / Mat.burnTime[id] * faces * rate
+        // облако тонкой пыли (мука, крахмал, пудра) сгорает почти мгновенно — пылевой взрыв
+        val dust = Mat.isPowder(id) && Mat.fineness[id] >= 0.85f && faces >= 3
+        if (dust) dp *= 60f
         val mass = Mat.density[id] * Units.VOL * w.amt[i]
         val burned = mass * minOf(dp, maxOf(0f, 1f - w.burn[i]) + 1e-6f)
         val e = Mat.burnHeat[id] * burned
@@ -431,8 +437,10 @@ class Chemistry(private val w: World, private val air: Air) {
             val gasVol = gy * burned * tf / Units.KELVIN
             air.addPressure(i, gasVol / (air.cs * air.cs * Units.VOL) * 101.325f * EXPLOSION_SCALE)
         }
+        if (dust) air.addPressure(i, e * 0.004f)
         // угли и дерево сами раскалены; жидкость получает лишь малую долю тепла пламени
-        val selfShare = if (Mat.isLiquid(id)) 0.02f else 0.3f
+        // термит горит без газа — почти всё тепло остаётся в расплаве
+        val selfShare = if (Mat.isLiquid(id)) 0.02f else if (selfOx && gy <= 0f) 0.85f else 0.3f
         // угли раскалены, но не горячее собственного пламени — лишнее уходит в пламя
         w.temp[i] = minOf(w.temp[i] + selfShare * e / w.heatCapacity(i), maxOf(w.temp[i], Mat.flameTemp[id]))
 
@@ -496,7 +504,9 @@ class Chemistry(private val w: World, private val air: Air) {
             val tj = w.type[j].toInt()
             // язык пламени горяч, даже если клетка уже отдала тепло соседям
             val t = if (tj == Mat.FLAME) maxOf(w.temp[j], 900f)
-                else if ((w.flags[j].toInt() and burning) != 0 && Mat.flammable[tj]) w.temp[j] else 0f
+                else if ((w.flags[j].toInt() and burning) != 0 && Mat.flammable[tj]) w.temp[j]
+                // раскалённое (жидкий металл, лава, угли) поджигает то, чего касается
+                else if (w.temp[j] > 500f && Mat.isCondensed(tj)) w.temp[j] else 0f
             if (t > best) best = t
         }
         return best
