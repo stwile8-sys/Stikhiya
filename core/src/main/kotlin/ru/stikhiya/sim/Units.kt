@@ -38,5 +38,6 @@ enum class Category(val title: String) {
     STONE("Камни"),
     ORGANIC("Органика"),
     FOOD("Еда"),
+    LIFE("Живое"),
     SPECIAL("Особые")
 }

@@ -9,12 +9,13 @@ class Simulator(val world: World) {
     val bodies = Bodies(world, air)
     val hydro = Hydro(world)
     val reactions = Reactions(world, air)
+    val plants = Plants(world)
     var tick = 0
         private set
 
     var chemSpeed: Float
         get() = chemistry.chemSpeed
-        set(v) { chemistry.chemSpeed = v; reactions.chemSpeed = v }
+        set(v) { chemistry.chemSpeed = v; reactions.chemSpeed = v; plants.chemSpeed = v }
 
     /** Время мира в секундах. */
     val time: Float get() = tick * Units.DT
@@ -24,6 +25,7 @@ class Simulator(val world: World) {
         heat.step()
         chemistry.step()
         reactions.step()
+        plants.step()
         air.step()
         bodies.step()
         motion.step(tick)
@@ -84,7 +86,7 @@ object Brush {
     private val drainId = Mat.id("drain")
 
     /** Неподвижные приборы: не превращаются в падающие тела. */
-    fun isFixed(id: Int) = id == tapId || id == drainId || Mat.isFan[id]
+    fun isFixed(id: Int) = id == tapId || id == drainId || Mat.isFan[id] || Mat[id].category == Category.LIFE
 
     private fun draw(w: World, i: Int, id: Int): Boolean {
         if (w.type[i].toInt() != Mat.AIR) return false

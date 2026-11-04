@@ -403,6 +403,27 @@ object MoreSubstances {
             conductivity = 0.2f, friction = 0.85f, colorVar = 0.02f, spawnTemp = -12f, hotAt = -3f, hotTo = "milk",
             hotLatent = 2.2e5f, description = "тает в лужицу молока"),
 
+        // ---------- Живое ----------
+        Substance("seeds", "Семена", P.POWDER, C.LIFE, 0x9A7A3A, density = 700f, heatCapacity = 1800f,
+            conductivity = 0.15f, friction = 0.6f, colorVar = 0.15f, flashPoint = 300f, autoIgnition = 400f,
+            burnTime = 10f, burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.2f, smoke = 0.1f, oxygenNeed = 1.3f,
+            description = "прорастают на влажной земле при свете и тепле (химия ×600 — минуты, ×3600 — быстрее)"),
+        Substance("stem", "Стебель", P.SOLID, C.LIFE, 0x3E8A2E, density = 900f, heatCapacity = 3500f,
+            conductivity = 0.4f, colorVar = 0.1f, flashPoint = 350f, autoIgnition = 450f, burnTime = 15f,
+            burnHeat = 8e6f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.3f, oxygenNeed = 1.2f,
+            description = "растёт вверх, пока есть вода и свет"),
+        Substance("leaf", "Листья", P.SOLID, C.LIFE, 0x4CAF3A, density = 700f, heatCapacity = 3500f,
+            conductivity = 0.3f, alpha = 0.95f, colorVar = 0.12f, flashPoint = 350f, autoIgnition = 450f,
+            burnTime = 6f, burnHeat = 6e6f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.4f, oxygenNeed = 1.2f),
+        Substance("grass", "Трава", P.SOLID, C.LIFE, 0x5DBB3F, density = 700f, heatCapacity = 3500f,
+            conductivity = 0.3f, colorVar = 0.15f, flashPoint = 350f, autoIgnition = 450f, burnTime = 5f,
+            burnHeat = 6e6f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.3f, oxygenNeed = 1.2f,
+            description = "сажайте на влажную землю: растёт и расползается, без воды сохнет"),
+        Substance("dry_plant", "Сухая трава", P.SOLID, C.LIFE, 0xB29A55, density = 200f, heatCapacity = 1300f,
+            conductivity = 0.08f, colorVar = 0.12f, flashPoint = 250f, autoIgnition = 300f, burnTime = 1.5f,
+            burnHeat = 1.5e7f, burnTo = "ash", burnResidue = 0.3f, smoke = 0.1f, oxygenNeed = 1.2f, fineness = 0.7f,
+            description = "засохшее растение — вспыхивает от искры"),
+
         // ---------- Особые ----------
         Substance("tap", "Кран", P.SOLID, C.SPECIAL, 0x4A7FB0, density = 7800f, heatCapacity = 450f,
             conductivity = 50f, colorVar = 0.02f,

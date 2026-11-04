@@ -19,7 +19,8 @@ object Examples {
         Example("Пылевой взрыв муки") { dust(it) },
         Example("Морская вода → соль") { seaSalt(it) },
         Example("Брожение браги") { ferment(it) },
-        Example("Кислота и металлы") { acids(it) }
+        Example("Кислота и металлы") { acids(it) },
+        Example("Огород: семена и трава") { garden(it) }
     )
 
     // ---------------- помощники ----------------
@@ -209,6 +210,25 @@ object Examples {
         for (i in 0 until w.n) if (w.type[i].toInt() == Mat.WATER) { w.mixId[i] = sugar.toShort(); w.mix[i] = 0.3f }
         pour(s, "yeast", 220, 100, 260, 112)
         return "Тёплая сахарная вода и дрожжи: включите «Меню → химия ×3600» — пойдут пузыри CO₂ и получится брага. Нагрейте её выше 78 °C — выкипит спирт."
+    }
+
+    private fun garden(s: Simulator): String {
+        ground(s)
+        val w = s.world
+        val soil = Mat.id("soil")
+        for (y in 170..196) for (x in 0 until w.w) {
+            val i = w.idx(x, y)
+            w.put(i, soil)
+            // левая грядка полита, правая сухая
+            if (x < 300) { w.mixId[i] = Mat.WATER.toShort(); w.mix[i] = Mat.porosity[soil] * 0.6f }
+        }
+        for (x in 20 until 280 step 18) w.put(w.idx(x, 169), Mat.id("seeds"))
+        for (x in 330 until 460 step 30) w.put(w.idx(x, 169), Mat.id("seeds"))
+        val grass = Mat.id("grass")
+        for (x in 140..150) { val i = w.idx(x, 169); w.put(i, grass); w.mix[i] = 0.8f; w.life[i] = 3f }
+        for (x in 380..390) { val i = w.idx(x, 169); w.put(i, grass); w.mix[i] = 0.8f; w.life[i] = 3f }
+        rect(s, "brick", 300, 150, 303, 196)
+        return "Включите «Меню → химия ×3600»: на политой земле семена прорастут и трава расползётся, на сухой справа всё засохнет. Сухое легко поджечь."
     }
 
     private fun acids(s: Simulator): String {
