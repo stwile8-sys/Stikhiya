@@ -182,7 +182,7 @@ object Substances {
         Solubility("citric_acid", "water", sat20 = 1.47f, tempCoef = 0.01f, time = 4f)
     )
 
-    val all: List<Substance> = base + glued + MoreSubstances.list + Craft.list
+    val all: List<Substance> = base + glued + MoreSubstances.list + Craft.list + NewSubstances.list
 
     private fun darken(c: Int, k: Float): Int {
         val r = ((c shr 16 and 0xFF) * k).toInt()

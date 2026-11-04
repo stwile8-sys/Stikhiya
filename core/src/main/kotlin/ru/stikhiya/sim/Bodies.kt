@@ -10,6 +10,7 @@ import org.jbox2d.dynamics.joints.Joint
 import org.jbox2d.dynamics.joints.MouseJoint
 import org.jbox2d.dynamics.joints.MouseJointDef
 import org.jbox2d.dynamics.joints.RevoluteJointDef
+import org.jbox2d.dynamics.joints.RevoluteJoint
 import org.jbox2d.dynamics.joints.RopeJointDef
 import org.jbox2d.dynamics.joints.WeldJointDef
 import kotlin.math.cos
@@ -172,6 +173,36 @@ class Bodies(private val w: World, private val air: Air) {
      * Шарнир: тело a вращается вокруг точки (x, y) относительно тела b (0 — неподвижная стена).
      * Небольшое трение в оси — дверца не болтается вечно.
      */
+    /**
+     * Электромотор: шарнир, ось которого стоит на клетке «Электромотор», крутит деталь,
+     * пока через мотор идёт ток (скорость растёт с током).
+     */
+    fun driveMotors(current: (Int) -> Float) {
+        if (motorId < 0) return
+        for (l in joints) {
+            if (l.kind != HINGE) continue
+            val j = l.joint as? RevoluteJoint ?: continue
+            val cx = l.x.toInt(); val cy = l.y.toInt()
+            var cur = 0f
+            for (dy in -1..1) for (dx in -1..1) {
+                if (!w.inside(cx + dx, cy + dy)) continue
+                val i = w.idx(cx + dx, cy + dy)
+                if (w.type[i].toInt() == motorId) cur = maxOf(cur, current(i))
+            }
+            val rb = get(l.a) ?: continue
+            if (cur > 0.02f) {
+                j.motorSpeed = (cur * 4f).coerceAtMost(25f)
+                j.maxMotorTorque = rb.body.mass * BOX_G * 2f * B * 40f
+                rb.body.isAwake = true
+            } else {
+                j.motorSpeed = 0f
+                j.maxMotorTorque = rb.body.mass * BOX_G * 0.02f
+            }
+        }
+    }
+
+    private val motorId = Mat.list.indexOfFirst { it.key == "motor" }
+
     fun hinge(a: Int, b: Int, x: Float, y: Float): Boolean {
         val ra = get(a) ?: return false
         if (a == b) return false
@@ -473,6 +504,11 @@ class Bodies(private val w: World, private val air: Air) {
                 shape.setAsBox(hw, hh, v1, 0f)
                 fd.shape = shape
                 fd.density = Mat.density[t.toInt()] * Units.VOL / (B * B)
+                // трение и упругость — свои у каждого материала (резина прыгает, лёд скользит)
+                fd.friction = Mat.grip[t.toInt()]
+                // упругие материалы (резина, пробка, пластик) прыгают; остальное почти не отскакивает
+                val e = Mat.bounce[t.toInt()]
+                fd.restitution = if (e > 0.3f) e else 0.05f
                 rb.body.createFixture(fd)
                 x = xe + 1
             }
@@ -573,10 +609,12 @@ class Bodies(private val w: World, private val air: Air) {
         if (submerged > 0 && waterLevel(rb)) {
             // доля каждой клетки ниже уровня воды (уровень дробный — усреднён по столбцам)
             subF = 0f; wcx = 0f; wcy = 0f
+            // клетки впечатаны с округлением позы — берём настоящую высоту тела (без «мёртвой зоны» в 0,3 клетки)
+            val dy = if (rb.hasStamp) (rb.body.position.y - rb.stampY) / B else 0f
             for (k in 0 until rb.stamped.n) {
                 val i = rb.stamped.a[k]
                 if (w.owner[i] != id) continue
-                val y = i / ww
+                val y = i / ww + dy
                 val part = (y + 1f - levelY).coerceIn(0f, 1f)
                 if (part > 0f) { subF += part; wcx += (i % ww) * part; wcy += (y + 1f - part * 0.5f - 0.5f) * part }
             }
@@ -987,6 +1025,40 @@ class Bodies(private val w: World, private val air: Air) {
         def.angularDamping = 0.1f
         nb.body = physics.createBody(def)
         buildFixtures(nb)
+    }
+
+    /** Сделать тело неподвижным: его клетки остаются на месте и становятся частью опоры. */
+    fun freeze(id: Int): Boolean {
+        val rb = get(id) ?: return false
+        if (grabbed == id) release()
+        val sid = id.toShort()
+        for (k in 0 until rb.stamped.n) { val i = rb.stamped.a[k]; if (w.owner[i] == sid) w.owner[i] = 0 }
+        destroy(rb)
+        return true
+    }
+
+    /**
+     * Оживить неподвижный предмет под пальцем: связные клетки того же вещества становятся телом.
+     * Возвращает номер тела (0 — нечего оживлять).
+     */
+    fun makeDynamicAt(x: Int, y: Int, maxCells: Int = 30000): Int {
+        if (!w.inside(x, y)) return 0
+        val start = w.idx(x, y)
+        val t = w.type[start].toInt()
+        if (!Mat.isSolid(t) || w.owner[start].toInt() != 0 || Brush.isFixed(t)) return 0
+        val seen = HashSet<Int>(); seen += start
+        val q = IntList(256); q.add(start)
+        var head = 0
+        while (head < q.n && q.n < maxCells) {
+            val i = q.a[head++]
+            for (d in 0 until 4) {
+                val j = Neighbors.at(w, i, d)
+                if (j >= 0 && w.type[j].toInt() == t && w.owner[j].toInt() == 0 && seen.add(j)) q.add(j)
+            }
+        }
+        if (q.n >= maxCells) return 0
+        create(q)
+        return w.owner[start].toInt()
     }
 
     private fun destroy(rb: RigidBody) {

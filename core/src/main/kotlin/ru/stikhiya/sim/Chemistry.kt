@@ -433,6 +433,16 @@ class Chemistry(private val w: World, private val air: Air) {
     }
 
     private fun flame(i: Int) {
+        // соли металлов окрашивают пламя: натрий — жёлтым, стронций — красным, медь — зелёным…
+        if (w.rnd() < 0.25f) {
+            val j = Neighbors.at(w, i, w.rndInt(4))
+            if (j >= 0) {
+                val t = w.type[j].toInt()
+                val c = if (Mat.has(t, Tag.COLORANT) && Mat.flameColor[t] != 0) t
+                    else w.mixId[j].toInt().let { m -> if (m != 0 && Mat.isLiquid(t) && Mat.has(m, Tag.COLORANT)) m else 0 }
+                if (c != 0) w.mixId[i] = c.toShort()
+            }
+        }
         // в быстрой струе (сопло) догорающий газ уносится далеко: факел вытягивается
         val v = kotlin.math.abs(air.windX(i)) + kotlin.math.abs(air.windY(i))
         w.life[i] -= if (v > 1.5f) Units.DT * (1.5f / v) else Units.DT

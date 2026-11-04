@@ -27,7 +27,7 @@ class GameState {
     var view = ViewMode.NORMAL
 
     /** Нарисованное твёрдое падает (становится телом) или стоит на месте как постройка. */
-    var solidFalls = true
+    var solidFalls = false
 
     /** Клетка под пальцем в режиме «Смотреть». */
     var inspectX = -1

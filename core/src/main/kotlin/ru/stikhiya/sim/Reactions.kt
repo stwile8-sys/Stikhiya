@@ -33,7 +33,7 @@ class Reactions(private val w: World, private val air: Air) {
 
     private val acidsStrong = listOf("hcl", "dilute_h2so4")
 
-    val list: List<R> = buildList {
+    private val manual: List<R> = buildList {
         // ---- газ CO₂ из карбонатов ----
         add(R("soda", "vinegar", 1.2f, toA = "co2", toB = "water", probB = 0.5f, heat = -40f, gas = null,
             extra = "foam", extraProb = 0.7f))
@@ -132,6 +132,9 @@ class Reactions(private val w: World, private val air: Air) {
         add(R("braga", null, 0.4f, toA = "water", extra = "alcohol_vapor", extraProb = 1f, heat = -60f, minT = 78f, warm = false))
     }
 
+    /** Ручные реакции + общие правила по тегам (ручные главнее: пара, описанная вручную, не дублируется). */
+    val list: List<R> = manual + TagRules.generate(manual)
+
     // ---- таблицы по номерам ----
     private val cnt = Mat.count
     private val pair = IntArray(cnt * cnt) { -1 }
@@ -148,6 +151,7 @@ class Reactions(private val w: World, private val air: Air) {
     private val drain = Mat.id("drain")
     private val oxygen = Mat.id("oxygen")
     private val saltpeter = Mat.id("saltpeter")
+    private val vacuum = Mat.id("vacuum")
     private val burningBit = 2
 
     init {
@@ -172,6 +176,7 @@ class Reactions(private val w: World, private val air: Air) {
         active[drain] = true
         active[oxygen] = true
         active[saltpeter] = true
+        active[vacuum] = true
     }
 
     fun step() {
@@ -193,6 +198,7 @@ class Reactions(private val w: World, private val air: Air) {
             drain -> { drainCell(i); return }
             oxygen -> { oxygenCell(i); return }
             saltpeter -> { if (saltpeterCell(i)) return }
+            vacuum -> { vacuumCell(i); return }
         }
         val s = single[id]
         if (s >= 0) {
@@ -254,6 +260,7 @@ class Reactions(private val w: World, private val air: Air) {
     }
 
     private fun apply(k: Int, r: R, i: Int, j: Int) {
+        val aId = w.type[i]
         // тепло реакции — пополам между участниками
         if (r.heat != 0f) {
             if (j >= 0) {
@@ -290,7 +297,36 @@ class Reactions(private val w: World, private val air: Air) {
         if (x >= 0 && w.rnd() < r.extraProb) spawn(x, place(i, j), 1f, w.temp[i])
         if (r.flame > 0f && w.rnd() < r.flame) {
             val f = place(i, j)
-            if (f >= 0) { w.put(f, Mat.FLAME, 1200f); w.amt[f] = 4f }
+            if (f >= 0) { w.put(f, Mat.FLAME, 1200f); w.amt[f] = 4f; w.mixId[f] = aId }
+        }
+    }
+
+    /**
+     * Вакуум — отсутствие вещества: соседний газ расширяется в него (давление падает вдвое),
+     * жидкость вскипает и охлаждается (теплота испарения), всё остальное не трогается.
+     */
+    private fun vacuumCell(i: Int) {
+        val j = Neighbors.at(w, i, w.rndInt(4))
+        if (j < 0) return
+        val t = w.type[j].toInt()
+        if (t == vacuum || t == Mat.FLAME) return
+        if (Mat.isGas(t)) {
+            val a = w.amt[j] * 0.5f
+            val temp = w.temp[j]
+            w.put(i, t, temp)
+            w.amt[i] = a; w.amt[j] = a
+            return
+        }
+        if (Mat.isLiquid(t) && w.owner[j].toInt() == 0) {
+            val vap = Mat.hotTo[t]
+            if (vap < 0 || !Mat.isGas(vap)) return
+            val part = 0.05f
+            val mass = w.massDensity(t, w.temp[j]) * Units.VOL * part
+            w.temp[j] -= Mat.hotLatent[t] * mass / w.heatCapacity(j)
+            w.put(i, vap, w.temp[j])
+            w.amt[i] = 0.3f
+            w.amt[j] -= part
+            if (w.amt[j] < 0.05f) w.put(j, vacuum, w.temp[j])
         }
     }
 

@@ -97,6 +97,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         world = World(WORLD_W, WORLD_H)
         sim = Simulator(world)
         renderer = WorldRenderer(world, sim.air)
+        renderer.electric = sim.electric
         batch = SpriteBatch()
         shapes = ShapeRenderer()
         ui = Ui(st, this)
@@ -106,7 +107,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         buildStartScene()
         sound.muted = !prefs().getBoolean("sound", true)
         renderer.glowOn = prefs().getBoolean("glow", true)
-        setBackground(prefs().getInteger("background", 1))
+        setBackground(prefs().getInteger("background2", 0))
         ui.toast("«Меню» справа: готовые примеры (печь, плотина, термит, натрий…) и сохранение сцен. «Поиск» снизу — найти вещество.", 8f)
         sound.start()
     }
@@ -194,22 +195,24 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
 
     // ---------------- Фон ----------------
 
-    private val bgNames = arrayOf("тёмный", "лаборатория", "луг", "ночь в горах", "кухня")
-    private val bgFiles = arrayOf("", "lab", "meadow", "night", "kitchen")
+    private val bgNames = arrayOf("светлый", "тёмный", "лаборатория", "луг", "ночь в горах", "кухня")
+    private val bgFiles = arrayOf("", "", "lab", "meadow", "night", "kitchen")
+    private val bgPlain = intArrayOf(0xDAE2EA, 0x0E1116, 0xDAE2EA, 0xDAE2EA, 0x1A2030, 0xDAE2EA)
     private var bgIndex = 0
 
     private fun setBackground(k: Int) {
         bgIndex = k.coerceIn(0, bgNames.size - 1)
         renderer.background?.dispose()
         renderer.background = null
-        if (bgIndex > 0) {
+        renderer.setPlain(bgPlain[bgIndex])
+        if (bgFiles[bgIndex].isNotEmpty()) {
             try {
                 renderer.background = Texture(Gdx.files.internal("backgrounds/${bgFiles[bgIndex]}.png")).apply {
                     setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
                 }
             } catch (e: Exception) { bgIndex = 0 }
         }
-        prefs().putInteger("background", bgIndex).flush()
+        prefs().putInteger("background2", bgIndex).flush()
     }
 
     private fun menuRows(): List<List<MenuEntry>> {
@@ -241,7 +244,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 prefs().putBoolean("glow", renderer.glowOn).flush()
             },
             MenuEntry({ if (sound.muted) "Звук: выкл" else "Звук: вкл" }, { !sound.muted }) { toggleSound() },
-            MenuEntry({ "Фон: ${bgNames[bgIndex]}" }, { bgIndex > 0 }) { setBackground((bgIndex + 1) % bgNames.size) }
+            MenuEntry({ "Фон: ${bgNames[bgIndex]}" }, { bgFiles[bgIndex].isNotEmpty() }) { setBackground((bgIndex + 1) % bgNames.size) }
         )
         rows += listOf(MenuEntry({ "Мир" }, header = true))
         rows += listOf(
@@ -424,7 +427,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         val cx = originX + (lastCellX + 0.5f) * sc
         val cy = originY + (lastCellY + 0.5f) * sc
         shapes.begin(ShapeRenderer.ShapeType.Line)
-        shapes.setColor(1f, 1f, 1f, 0.5f)
+        shapes.setColor(0.12f, 0.16f, 0.24f, 0.75f)
         shapes.circle(cx, ui.screenH - cy, (st.brush + 0.5f) * sc, 32)
         shapes.end()
     }
@@ -510,8 +513,9 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     override fun hudText(): String {
         if (System.currentTimeMillis() < toastUntil) return toast
         var name = if (st.tool == Tool.DRAW) Mat[st.substance].name else st.tool.title
-        if (st.tool == Tool.HINGE) name = if (pivotX.isNaN()) "Шарнир: коснитесь, где будет ось" else "Шарнир: рисуйте деталь (${Mat[st.substance].name.lowercase(RU)})"
+        if (st.tool == Tool.HINGE) name = if (pivotX.isNaN()) "Шарнир: коснитесь, где будет ось" else "Шарнир: рисуйте деталь или коснитесь готового предмета"
         if (st.tool == Tool.FIX) name = "Крепление: коснитесь тела"
+        if (st.tool == Tool.PHYSICS) name = "Физика: коснитесь предмета — станет подвижным (или снова неподвижным)"
         if (st.tool == Tool.HAND) name = "Рука: тело — тянуть, пусто — двигать карту"
         val tSec = sim.time.toInt()
         val time = "%d:%02d".format(tSec / 60, tSec % 60)
@@ -605,9 +609,10 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             }
             if (st.tool != Tool.HINGE && !pivotX.isNaN()) cancelHinge()
             if (st.tool == Tool.HAND) {
-                // рука на теле — берёт его пальцем, на пустом месте — двигает карту
+                // рука на теле — берёт его пальцем, на выключателе — щёлкает, на пустом месте — двигает карту
                 val id = sim.bodies.bodyAt(cellX(x).toInt(), cellY(y).toInt())
                 if (id != 0 && sim.bodies.grab(id, cellX(x), cellY(y))) { grabPointer = pointer; return true }
+                if (sim.toggleSwitch(cellX(x).toInt(), cellY(y).toInt())) { say("Щёлк!"); return true }
                 panPointer = pointer
                 panStartX = x; panStartY = y
                 panOriginX = originX; panOriginY = originY
@@ -615,6 +620,14 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             }
             if (st.tool == Tool.LIGHTNING) {
                 sim.electric.lightning(cellX(x).toInt().coerceIn(0, world.w - 1), cellY(y).toInt().coerceIn(0, world.h - 1))
+                return true
+            }
+            if (st.tool == Tool.PHYSICS) {
+                val cx = cellX(x).toInt(); val cy = cellY(y).toInt()
+                val id = sim.bodies.bodyAt(cx, cy)
+                if (id != 0) { sim.bodies.freeze(id); say("Предмет стал неподвижным") }
+                else if (sim.bodies.makeDynamicAt(cx, cy) != 0) say("Предмет стал физичным — падает, плавает, его можно тянуть «Рукой»")
+                else say("Физика: коснитесь твёрдого предмета")
                 return true
             }
             if (st.tool == Tool.FIX) {
@@ -692,6 +705,16 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             val n = sim.bodies.createRope(ropeX, ropeY, ropeN, st.substance)
             if (n > 0) say("Верёвка: $n звеньев — концы держатся за то, чего касались")
             ropeN = 0
+            return
+        }
+        if (st.tool == Tool.HINGE && !pivotX.isNaN() && stroke.n == 0 && !lastCellX.isNaN()) {
+            // нарисованного нет — касание по готовому предмету: он становится деталью на этой оси
+            val cx = lastCellX.toInt(); val cy = lastCellY.toInt()
+            var part = sim.bodies.bodyAt(cx, cy)
+            if (part == 0) part = sim.bodies.makeDynamicAt(cx, cy)
+            if (part != 0 && part != pivotBody && sim.bodies.hinge(part, pivotBody, pivotX, pivotY))
+                say("Предмет на шарнире. Двигайте его «Рукой»")
+            cancelHinge()
             return
         }
         if (st.tool == Tool.HINGE && !pivotX.isNaN()) {

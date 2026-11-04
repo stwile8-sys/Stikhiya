@@ -9,6 +9,7 @@ import kotlin.math.sqrt
  */
 class Motion(private val w: World, private val air: Air) {
     private var tick = 0
+    private val nitroId = Mat.list.indexOfFirst { it.key == "nitroglycerin" }
 
     fun step(tick: Int) {
         this.tick = tick
@@ -203,6 +204,8 @@ class Motion(private val w: World, private val air: Air) {
         var vx = w.vx[i]
         val impact = w.vy[i]
         w.vy[i] = 0f
+        // нитроглицерин детонирует от удара: падение с высоты ~30 см и больше
+        if (id == nitroId && impact > 4f) { w.temp[i] = maxOf(w.temp[i], 400f); w.stamp[i] = tick; return }
         if (impact > 1.2f) {
             val sgn = if (vx > 0.1f) 1f else if (vx < -0.1f) -1f else if (w.rnd() < 0.5f) -1f else 1f
             // изредка капля отскакивает вверх — брызги

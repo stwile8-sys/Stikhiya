@@ -76,6 +76,13 @@ class Substance(
     val lifetime: Float = Float.NaN,        // с, после — растворяется в воздухе
     val emissivity: Float = 0.9f,           // излучательная способность
 
+    // Теги (см. [Tag]) — по ним работают общие правила реакций
+    val tags: Int = 0,
+    val flame: Int = 0,                     // цвет пламени 0xRRGGBB (0 — по температуре)
+    val bounce: Float = Float.NaN,          // упругость твёрдого тела 0..1 (резина ~0.8)
+    val grip: Float = Float.NaN,            // коэффициент трения твёрдого тела
+    val elec: Float = Float.NaN,            // удельная электропроводность, См/м
+
     val description: String = ""
 )
 

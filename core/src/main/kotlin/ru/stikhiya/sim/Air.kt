@@ -73,6 +73,11 @@ class Air(private val w: World) {
     private var regSrc = FloatArray(16)
     private var regN = IntArray(16)
     private var regP = FloatArray(16)
+    // нагрев газа в замкнутом объёме: p ∝ T (pV = nRT) — изменение температуры газа по клеткам
+    private val prevT = FloatArray(an) { Float.NaN }
+    private val prevFrac = FloatArray(an)
+    private val thermo = FloatArray(an)
+    private var regTh = FloatArray(16)
 
     fun step() {
         tick++
@@ -137,6 +142,12 @@ class Air(private val w: World) {
             avgT[c] = if (f > 0f) avgT[c] / f else Units.AMBIENT
             fluidFrac[c] = f / total
             if (blocked[c]) { vx[c] = 0f; vy[c] = 0f }
+            // ΔT/T газа этой клетки (если состав клетки не менялся) — для давления замкнутого объёма
+            val ff = fluidFrac[c]
+            val pt = prevT[c]
+            thermo[c] = if (!pt.isNaN() && ff > 0f && abs(ff - prevFrac[c]) < 1e-3f)
+                ((avgT[c] - pt) / (pt + Units.KELVIN) * ff).coerceIn(-0.9f, 10f) else 0f
+            prevT[c] = avgT[c]; prevFrac[c] = ff
         }
     }
 
@@ -219,13 +230,17 @@ class Air(private val w: World) {
         val dt = Units.DT
         // источник по объёмам: средний поднимает давление объёма, остаток раздаётся течением
         java.util.Arrays.fill(regSrc, 0, regions, 0f)
-        for (c in 0 until an) { val r = region[c]; if (r >= 0) regSrc[r] += src[c] }
+        if (regTh.size < regSrc.size) regTh = FloatArray(regSrc.size)
+        java.util.Arrays.fill(regTh, 0, regions, 0f)
+        for (c in 0 until an) { val r = region[c]; if (r >= 0) { regSrc[r] += src[c]; regTh[r] += thermo[c] } }
         for (r in 0 until regions) {
             val mean = if (regN[r] > 0) regSrc[r] / regN[r] else 0f
             regSrc[r] = mean
-            // ΔP/P = ΔV/V: газу некуда деться — растёт давление объёма (а в комнате — быстро уходит в глубину)
-            regP[r] = (regP[r] + mean * Units.P_ATM / 1000f).coerceIn(P_MIN, P_MAX)
-            regP[r] *= if (r == openRegion) 0.9f else 0.9995f
+            // ΔP/P = ΔV/V + ΔT/T: газу некуда деться — растёт давление объёма (а в комнате — быстро уходит в глубину)
+            val th = if (regN[r] > 0) regTh[r] / regN[r] else 0f
+            val pAbs = Units.P_ATM / 1000f + regP[r]
+            regP[r] = (regP[r] + (mean + th) * pAbs).coerceIn(P_MIN, P_MAX)
+            regP[r] *= if (r == openRegion) 0.9f else 0.99998f
         }
         for (y in 0 until ah) for (x in 0 until aw) {
             val c = y * aw + x

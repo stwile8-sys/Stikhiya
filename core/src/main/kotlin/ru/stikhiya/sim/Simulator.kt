@@ -10,13 +10,14 @@ class Simulator(val world: World) {
     val hydro = Hydro(world)
     val reactions = Reactions(world, air)
     val plants = Plants(world)
+    val growth = Growth(world)
     val electric = Electric(world, air)
     var tick = 0
         private set
 
     var chemSpeed: Float
         get() = chemistry.chemSpeed
-        set(v) { chemistry.chemSpeed = v; reactions.chemSpeed = v; plants.chemSpeed = v }
+        set(v) { chemistry.chemSpeed = v; reactions.chemSpeed = v; plants.chemSpeed = v; growth.chemSpeed = v }
 
     /** Время мира в секундах. */
     val time: Float get() = tick * Units.DT
@@ -28,10 +29,39 @@ class Simulator(val world: World) {
         electric.step()
         reactions.step()
         plants.step()
+        growth.step()
         air.step()
+        if (electric.active) bodies.driveMotors { electric.currentAt(it) }
         bodies.step()
         motion.step(tick)
         hydro.step(tick)
+    }
+
+    private val swOn = Mat.id("switch_on")
+    private val swOff = Mat.id("switch_off")
+
+    /** Тап рукой по выключателю: переключает весь выключатель (связные клетки). true — был выключатель. */
+    fun toggleSwitch(x: Int, y: Int): Boolean {
+        val w = world
+        var start = -1
+        for (dy in -2..2) for (dx in -2..2) {
+            if (!w.inside(x + dx, y + dy)) continue
+            val t = w.type[w.idx(x + dx, y + dy)].toInt()
+            if (t == swOn || t == swOff) { start = w.idx(x + dx, y + dy); break }
+        }
+        if (start < 0) return false
+        val from = w.type[start].toInt()
+        val to = if (from == swOn) swOff else swOn
+        val q = ArrayDeque<Int>(); q.add(start); w.type[start] = to.toShort()
+        while (q.isNotEmpty()) {
+            val i = q.removeFirst()
+            for (d in 0 until 4) {
+                val j = Neighbors.at(w, i, d)
+                if (j >= 0 && w.type[j].toInt() == from) { w.type[j] = to.toShort(); q.add(j) }
+            }
+        }
+        electric.invalidate()
+        return true
     }
 
     fun clear() {
@@ -46,6 +76,7 @@ enum class Tool(val title: String, val inPanel: Boolean = true) {
     HAND("Рука"),
     HINGE("Шарнир"),
     FIX("Крепление"),
+    PHYSICS("Физика"),
     DRAW("Кисть"),
     ERASE("Ластик"),
     HEAT("Нагреть"),

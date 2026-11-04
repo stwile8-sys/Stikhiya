@@ -122,17 +122,14 @@ object Mat {
 
     val lifetime = FloatArray(count) { list[it].lifetime }
 
-    /** Цвет пламени по топливу (0 — обычный, по температуре): газы и сера горят синим, металлы — белым, натрий — жёлтым. */
-    val flameColor = IntArray(count) { i ->
-        when (list[i].key) {
-            "hydrogen" -> 0xA8C4FF
-            "methane", "propane", "alcohol_vapor", "acetone_vapor" -> 0x4F7BFF
-            "sulfur", "molten_sulfur" -> 0x4A64FF
-            "magnesium", "molten_magnesium", "al_powder", "aluminum_powder", "thermite" -> 0xFFFFF4
-            "sodium", "molten_sodium" -> 0xFFC830
-            else -> 0
-        }
-    }
+    /** Цвет пламени по топливу или окрашивающей соли (0 — обычный, по температуре). */
+    val flameColor = IntArray(count) { Tag.flameOf(list[it]) }
+
+    val tags = IntArray(count) { Tag.of(list[it]) }
+    fun has(id: Int, tag: Int) = (tags[id] and tag) != 0
+    val bounce = FloatArray(count) { Tag.bounceOf(list[it]) }
+    val grip = FloatArray(count) { Tag.gripOf(list[it]) }
+    val elec = FloatArray(count) { list[it].elec }
 
     /** Склеенный вариант порошка (или -1). */
     val gluedOf = IntArray(count) { i -> byKey["glued_" + list[i].key] ?: -1 }

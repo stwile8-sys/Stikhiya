@@ -34,10 +34,30 @@ class WorldRenderer(private val w: World, private val air: Air) {
     var mode = ViewMode.NORMAL
     private var frame = 0
 
-    // Фон — воздух
-    private val bgR = 0x0E / 255f
-    private val bgG = 0x11 / 255f
-    private val bgB = 0x16 / 255f
+    // Фон — воздух (светлый по умолчанию; меняется в меню «Фон»)
+    private var bgR = 0xDA / 255f
+    private var bgG = 0xE2 / 255f
+    private var bgB = 0xEA / 255f
+    private var BG = pack(bgR, bgG, bgB)
+
+    /** Однотонный фон 0xRRGGBB. */
+    fun setPlain(c: Int) {
+        bgR = ((c shr 16) and 0xFF) / 255f; bgG = ((c shr 8) and 0xFF) / 255f; bgB = (c and 0xFF) / 255f
+        BG = pack(bgR, bgG, bgB)
+    }
+    private fun pack(r: Float, g: Float, b: Float) =
+        ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
+
+    /** Электрическая цепь — для свечения лампочек, светодиодов и неона. */
+    var electric: ru.stikhiya.sim.Electric? = null
+    private val ledId = Mat.list.indexOfFirst { it.key == "led" }
+    private val neonId = Mat.list.indexOfFirst { it.key == "neon_lamp" }
+    private val fireworksId = Mat.list.indexOfFirst { it.key == "fireworks" }
+    private fun lit(i: Int): Float {
+        val e = electric ?: return 0f
+        if (!e.active) return 0f
+        return (e.currentAt(i) * 20f).coerceIn(0f, 1f)
+    }
 
     // Предрассчитанные цвета веществ
     private val baseR = FloatArray(Mat.count) { ((Mat[it].color shr 16) and 0xFF) / 255f }
@@ -95,7 +115,17 @@ class WorldRenderer(private val w: World, private val air: Air) {
             if (id == Mat.FLAME) {
                 val k = flameHeat(i, t)
                 r = 0.55f * k; g = 0.26f * k * k; b = 0.06f * k * k * k
+                val fuel = w.mixId[i].toInt()
+                val fc = if (fuel > 0 && fuel < Mat.count) Mat.flameColor[fuel] else 0
+                if (fc != 0) {
+                    r = ((fc shr 16) and 0xFF) / 255f * 0.5f * k
+                    g = ((fc shr 8) and 0xFF) / 255f * 0.5f * k
+                    b = (fc and 0xFF) / 255f * 0.5f * k
+                }
                 total += k
+            } else if ((id == ledId || id == neonId) && lit(i) > 0f) {
+                val k = lit(i)
+                if (id == ledId) { r = 0.25f * k; g = 0.35f * k; b = 0.6f * k } else { r = 0.6f * k; g = 0.18f * k; b = 0.08f * k }
             } else if (t > 550f && id != Mat.AIR) {
                 // раскалённое светится: тёмно-красное → оранжевое → белое
                 val k = ((t - 550f) / 900f).coerceIn(0f, 1.2f) * (if (Mat.isGas(id)) 0.3f else 1f)
@@ -180,7 +210,7 @@ class WorldRenderer(private val w: World, private val air: Air) {
         val bg = background
         if (bg != null && mode == ViewMode.NORMAL) {
             // картинка приглушена, чтобы вещества хорошо читались
-            batch.setColor(0.5f, 0.5f, 0.52f, 1f)
+            batch.setColor(0.9f, 0.9f, 0.92f, 1f)
             batch.draw(bg, x, y, width, height)
             batch.setColor(1f, 1f, 1f, 1f)
         }
@@ -249,6 +279,30 @@ class WorldRenderer(private val w: World, private val air: Air) {
                 if (w.amt[i] < 0.95f) a *= 0.4f + 0.6f * w.amt[i]
             }
         }
+        // объём: верхний край вещества освещён, нижний — в тени; поверхность жидкости блестит
+        if (ph >= Phase.LIQUID.ordinal) {
+            val ww = w.w
+            val up = if (i >= ww) w.type[i - ww].toInt() else Mat.AIR
+            val dn = if (i + ww < w.n) w.type[i + ww].toInt() else id
+            val upOpen = Mat.isGas(up)
+            if (ph == Phase.LIQUID.ordinal) {
+                if (upOpen) { r += (1f - r) * 0.22f; g += (1f - g) * 0.22f; b += (1f - b) * 0.22f; a = maxOf(a, 0.85f) }
+                else if (up == id && i >= 2 * ww && w.type[i - 2 * ww].toInt() == id) { r *= 0.93f; g *= 0.95f; b *= 0.97f }
+            } else {
+                if (upOpen) { r = r * 1.14f + 0.03f; g = g * 1.14f + 0.03f; b = b * 1.14f + 0.03f }
+                else if (Mat.isGas(dn)) { r *= 0.8f; g *= 0.8f; b *= 0.8f }
+                else if (up != id) { r *= 0.94f; g *= 0.94f; b *= 0.94f }
+            }
+        }
+        // светодиод и неон светятся, пока идёт ток
+        if (id == ledId || id == neonId) {
+            val k = lit(i)
+            if (k > 0f) {
+                if (id == ledId) { r += (0.75f - r) * k; g += (0.85f - g) * k; b += (1f - b) * k }
+                else { r += (1f - r) * k; g += (0.4f - g) * k; b += (0.2f - b) * k }
+                a = 1f
+            }
+        }
         // накал
         if (t > 480f) {
             val k = ((t - 480f) / 700f).coerceIn(0f, 0.92f)
@@ -275,7 +329,8 @@ class WorldRenderer(private val w: World, private val air: Air) {
         var b = (heat * heat * heat * 0.45f) * flicker
         // цвет пламени зависит от топлива (mixId пламени): газ — синий, магний — белый, натрий — жёлтый
         val fuel = w.mixId[i].toInt()
-        val fc = if (fuel > 0 && fuel < Mat.count) Mat.flameColor[fuel] else 0
+        var fc = if (fuel > 0 && fuel < Mat.count) Mat.flameColor[fuel] else 0
+        if (fuel == fireworksId && fuel >= 0) fc = FIREWORK[(i * 7 + (i / w.w) * 3) % FIREWORK.size]
         if (fc != 0) {
             val m = 0.7f * minOf(1f, heat + 0.3f)
             r += (((fc shr 16) and 0xFF) / 255f * flicker - r) * m
@@ -410,7 +465,8 @@ class WorldRenderer(private val w: World, private val air: Air) {
         return ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
     }
 
-    private val BG = ((bgR * 255f).toInt() shl 24) or ((bgG * 255f).toInt() shl 16) or ((bgB * 255f).toInt() shl 8) or 0xFF
+
+    private val FIREWORK = intArrayOf(0xFF2A2A, 0x40E070, 0x4F7BFF, 0xFFC830, 0xC890FF, 0x30D8E0, 0xFFFFFF)
 
     /** Фоновая картинка за миром (null — тёмный фон). */
     var background: Texture? = null

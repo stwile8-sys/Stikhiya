@@ -25,6 +25,10 @@ class Electric(private val w: World, private val air: Air) {
     private val plus = Mat.id("battery_plus")
     private val minus = Mat.id("battery_minus")
     private val lamp = Mat.id("lamp")
+    private val accu = Mat.id("accumulator")
+    private val led = Mat.id("led")
+    private val peltier = Mat.id("peltier")
+    private val isSrc = BooleanArray(Mat.count).also { it[plus] = true; it[minus] = true; it[accu] = true }
     private val hydrogen = Mat.id("hydrogen")
     private val oxygen = Mat.id("oxygen")
 
@@ -33,7 +37,8 @@ class Electric(private val w: World, private val air: Air) {
         val s = Mat[id]
         val k = s.key
         when {
-            id == plus || id == minus -> 2000f            // ~0,05 Ом на клетку — внутреннее сопротивление
+            !s.elec.isNaN() -> s.elec
+            isSrc[id] || k == "accumulator" -> 2000f            // ~0,05 Ом на клетку — внутреннее сопротивление
             id == lamp -> 10f                             // нить: ~10 Ом на клетку
             k == "nichrome" -> 200f                       // спираль: ~0,5 Ом на клетку
             k == "copper" || k == "molten_copper" -> 5.9e7f
@@ -85,6 +90,9 @@ class Electric(private val w: World, private val air: Air) {
         return minOf(g, G_MAX)
     }
 
+    /** Цепь изменилась (выключатель) — пересобрать на следующем шаге. */
+    fun invalidate() { tick = 0 }
+
     fun step() {
         tick++
         if (tick % 10 == 1) rebuild()
@@ -102,13 +110,13 @@ class Electric(private val w: World, private val air: Air) {
         var qn = 0
         for (i in 0 until n) {
             val t = w.type[i].toInt()
-            if (t != plus && t != minus) continue
+            if (!isSrc[t]) continue
             hasSource = true
             for (d in 0 until 4) {
                 val j = Neighbors.at(w, i, d)
                 if (j < 0 || idx[j] >= 0) continue
                 val tj = w.type[j].toInt()
-                if (sigma[tj] <= 0f || tj == plus || tj == minus) continue
+                if (sigma[tj] <= 0f || isSrc[tj]) continue
                 if (m == cells.size) grow()
                 idx[j] = m; cells[m++] = j
             }
@@ -119,7 +127,7 @@ class Electric(private val w: World, private val air: Air) {
                 val j = Neighbors.at(w, i, d)
                 if (j < 0 || idx[j] >= 0) continue
                 val tj = w.type[j].toInt()
-                if (sigma[tj] <= 0f || tj == plus || tj == minus) continue
+                if (sigma[tj] <= 0f || isSrc[tj]) continue
                 if (m == cells.size) grow()
                 idx[j] = m; cells[m++] = j
             }
@@ -133,7 +141,7 @@ class Electric(private val w: World, private val air: Air) {
         r = FloatArray(s); p = FloatArray(s); ap = FloatArray(s); nb = IntArray(s * 4); gl = FloatArray(s * 4)
     }
 
-    private fun srcPhi(t: Int) = if (t == plus) VOLTAGE else 0f
+    private fun srcPhi(t: Int) = if (t == plus) VOLTAGE else if (t == accu) ACCU_VOLTAGE else 0f
 
     private fun solve() {
         for (k in 0 until m) {
@@ -149,7 +157,7 @@ class Electric(private val w: World, private val air: Air) {
                 if (g <= 0f) continue
                 d += g
                 val tj = w.type[j].toInt()
-                if (tj == plus || tj == minus) b += g * srcPhi(tj)
+                if (isSrc[tj]) b += g * srcPhi(tj)
                 else { nb[o] = idx[j]; gl[o] = g }
             }
             diag[k] = d; rhs[k] = b; x[k] = phi[i]
@@ -195,14 +203,17 @@ class Electric(private val w: World, private val air: Air) {
                 val g = link(i, j)
                 if (g <= 0f) continue
                 val tj0 = w.type[j].toInt()
-                val u = phi[i] - (if (tj0 == plus || tj0 == minus) srcPhi(tj0) else phi[j])
+                val u = phi[i] - (if (isSrc[tj0]) srcPhi(tj0) else phi[j])
                 // мощность на связи U²·G делится пропорционально сопротивлению половинок: греется плохой проводник
                 val si = sig(i); val sj = sig(j)
                 val share = sj / (si + sj)
                 heat += share * u * u * g
                 val tj = w.type[j].toInt()
-                if (tj == plus || tj == minus) w.temp[j] += (1f - share) * u * u * g * Units.DT / w.heatCapacity(j)
+                if (isSrc[tj]) w.temp[j] += (1f - share) * u * u * g * Units.DT / w.heatCapacity(j)
             }
+            val ti = w.type[i].toInt()
+            if (ti == led) heat *= 0.05f   // светодиод отдаёт энергию светом, почти не греясь
+            if (ti == peltier) peltierPump(i)
             if (heat > 0f) {
                 val c = w.heatCapacity(i)
                 w.temp[i] = minOf(w.temp[i] + heat * Units.DT / c, if (w.type[i].toInt() == lamp) 2800f else 6000f)
@@ -213,13 +224,23 @@ class Electric(private val w: World, private val air: Air) {
         }
     }
 
+    /** Эффект Пельтье: ток переносит тепло снизу вверх (Q = Π·I). */
+    private fun peltierPump(i: Int) {
+        val up = if (i >= w.w) i - w.w else -1
+        val dn = if (i + w.w < n) i + w.w else -1
+        if (up < 0 || dn < 0) return
+        val q = minOf(PELTIER * currentAt(i), 60f) * Units.DT
+        w.temp[up] += q / w.heatCapacity(up)
+        w.temp[dn] -= q / w.heatCapacity(dn)
+    }
+
     private fun electrolysis(i: Int) {
         for (dd in 0 until 4) {
             val j = Neighbors.at(w, i, dd)
             if (j < 0) continue
             val tj = w.type[j].toInt()
             if (sigma[tj] < 1000f) continue   // электрод — металл, графит или батарея
-            val pj = if (tj == plus || tj == minus) srcPhi(tj) else phi[j]
+            val pj = if (isSrc[tj]) srcPhi(tj) else phi[j]
             val cur = link(i, j) * (pj - phi[i])   // + — ток из электрода в раствор: анод
             gas[i] += cur * Units.DT * GAS_SCALE
             // на катоде водорода по объёму вдвое больше, чем кислорода на аноде: 2H₂O → 2H₂ + O₂
@@ -269,7 +290,7 @@ class Electric(private val w: World, private val air: Air) {
             val j = Neighbors.at(w, i, dd)
             if (j < 0) continue
             val tj = w.type[j].toInt()
-            s += abs(link(i, j) * (phi[i] - (if (tj == plus || tj == minus) srcPhi(tj) else phi[j])))
+            s += abs(link(i, j) * (phi[i] - (if (isSrc[tj]) srcPhi(tj) else phi[j])))
         }
         return s * 0.5f
     }
@@ -280,6 +301,8 @@ class Electric(private val w: World, private val air: Air) {
 
     companion object {
         const val VOLTAGE = 12f
+        const val ACCU_VOLTAGE = 24f
+        const val PELTIER = 2f          // В — коэффициент Пельтье модуля (Q = Π·I)
         const val G_MAX = 1e4f      // См: металлический провод — почти идеальный (иначе решение не сходится)
         const val G_LEAK = 1e-6f    // утечка в «землю», чтобы оторванный кусок провода имел потенциал
         const val ITER = 60
