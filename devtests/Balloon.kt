@@ -15,7 +15,7 @@ fun main(args: Array<String>) {
             if (released) s.bodies.get(e)?.let { maxRise = maxOf(maxRise, y0 - it.body.position.y / B) } }
         val eb = s.bodies.get(e)
         if (args.size > 1) snap(w, "/tmp/bal_$t.png")
-        println("t=${t}с оболочка y=${eb?.let { "%.1f".format(it.body.position.y / B) } ?: "нет"}  подъёмная сила ${"%.2f".format(s.bodies.liftOf(e) / Units.GRAVITY * 1000)} г  нейлона ${count(w, "nylon")}  пламени ${count(w, "flame")}")
+        println("t=${t}с оболочка y=${eb?.let { "%.1f".format(it.body.position.y / B) } ?: "нет"}  подъёмная сила ${"%.2f".format(s.bodies.liftOf(e) / Units.GRAVITY * 1000)} г  нейлона ${count(w, "balloon_nylon")}  пламени ${count(w, "flame")}")
     }
     println("поднялся максимум на ${"%.0f".format(maxRise)} см; шаг ${"%.2f".format(run { val t0 = System.nanoTime(); run(s, 60); (System.nanoTime() - t0) / 1e6 / 60 })} мс")
 }

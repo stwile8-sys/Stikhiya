@@ -19,7 +19,7 @@ object Craft {
             conductivity = 0.06f, colorVar = 0.05f, flashPoint = 255f, autoIgnition = 400f, burnTime = 2f,
             burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.1f, flameTemp = 900f, oxygenNeed = 1.2f,
             fineness = 0.6f, description = "хлопковое полотно 150 г/м², не пропускает воздух; горит"),
-        Substance("nylon", "Нейлон (для шара)", P.SOLID, C.ORGANIC, 0xD8402E, density = 2.5f, heatCapacity = 1700f,
+        Substance("balloon_nylon", "Нейлон для шара", P.SOLID, C.ORGANIC, 0xD8402E, density = 2.5f, heatCapacity = 1700f,
             conductivity = 0.25f, colorVar = 0.08f, hotAt = 260f, hotTo = "molten_plastic", hotLatent = 2.0e5f,
             flashPoint = 400f, autoIgnition = 420f, burnTime = 1f, burnHeat = 3.1e7f, smoke = 0.3f,
             flameTemp = 900f, oxygenNeed = 2.5f, fineness = 0.6f,
@@ -45,7 +45,7 @@ object Craft {
      * cx, top — центр и верх купола, r — радиус купола в клетках (от ~55 шар уже поднимает себя).
      */
     fun buildBalloon(w: World, b: Bodies, cx: Int, top: Int, r: Int, burners: Int = 2): Int {
-        val nylon = Mat.id("nylon")
+        val nylon = Mat.id("balloon_nylon")
         val cy = top + r
         val mouth = maxOf(6, r / 4)
         val skirtH = r / 2
