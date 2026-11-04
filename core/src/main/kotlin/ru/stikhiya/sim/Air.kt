@@ -176,13 +176,25 @@ class Air(private val w: World) {
                 val c = y * aw + x
                 if (blocked[c]) { vx[c] = 0f; vy[c] = 0f; continue }
                 if (x < aw - 1 && !blocked[c + 1]) {
-                    vx[c] = (vx[c] * V_LOSS + (pv[c] - pv[c + 1]) * K_V).coerceIn(-V_MAX, V_MAX)
+                    vx[c] = jet(vx[c] * V_LOSS + (pv[c] - pv[c + 1]) * K_V, pv[c] - pv[c + 1])
                 } else vx[c] = 0f
                 if (y < ah - 1 && !blocked[c + aw]) {
-                    vy[c] = (vy[c] * V_LOSS + (pv[c] - pv[c + aw]) * K_V).coerceIn(-V_MAX, V_MAX)
+                    vy[c] = jet(vy[c] * V_LOSS + (pv[c] - pv[c + aw]) * K_V, pv[c] - pv[c + aw])
                 } else vy[c] = 0f
             }
         }
+    }
+
+    /**
+     * Большой перепад давления (сопло камеры сгорания, пробоина) разгоняет газ почти до скорости
+     * Бернулли v = √(2Δp/ρ) — так получается реактивная струя.
+     */
+    private fun jet(v: Float, dp: Float): Float {
+        val a = abs(dp)
+        if (a < JET_DP) return v.coerceIn(-V_MAX, V_MAX)
+        val target = kotlin.math.sqrt(2f * (a - JET_DP) * 1000f / 1.2f) * JET_K * (if (dp > 0f) 1f else -1f)
+        val out = if ((target > 0f && v < target) || (target < 0f && v > target)) v + (target - v) * 0.2f else v
+        return out.coerceIn(-V_MAX, V_MAX)
     }
 
     /** Ветер переносит сам себя и кислород; лёгкое сглаживание держит расчёт устойчивым. */
@@ -469,5 +481,7 @@ class Air(private val w: World) {
         const val P_MIN = -100f
         const val P_MAX = 400f
         const val V_MAX = 30f
+        const val JET_DP = 0.8f          // кПа: меньше — обычный ветер
+        const val JET_K = 0.3f           // игровой масштаб скорости струи (звук в игре медленнее)
     }
 }

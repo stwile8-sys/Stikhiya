@@ -25,6 +25,7 @@ object Mat {
     val STEAM = id("steam")
     val FLAME = id("flame")
     val SMOKE = id("smoke")
+    val OXYGEN = id("oxygen")
     val ASH = id("ash")
 
     // --- свойства ---
@@ -98,6 +99,18 @@ object Mat {
     val setHeat = FloatArray(count) { list[it].setHeat }
 
     val lifetime = FloatArray(count) { list[it].lifetime }
+
+    /** Цвет пламени по топливу (0 — обычный, по температуре): газы и сера горят синим, металлы — белым, натрий — жёлтым. */
+    val flameColor = IntArray(count) { i ->
+        when (list[i].key) {
+            "hydrogen" -> 0xA8C4FF
+            "methane", "propane", "alcohol_vapor", "acetone_vapor" -> 0x4F7BFF
+            "sulfur", "molten_sulfur" -> 0x4A64FF
+            "magnesium", "molten_magnesium", "al_powder", "aluminum_powder", "thermite" -> 0xFFFFF4
+            "sodium", "molten_sodium" -> 0xFFC830
+            else -> 0
+        }
+    }
 
     /** Склеенный вариант порошка (или -1). */
     val gluedOf = IntArray(count) { i -> byKey["glued_" + list[i].key] ?: -1 }

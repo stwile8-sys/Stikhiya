@@ -249,9 +249,18 @@ class WorldRenderer(private val w: World, private val air: Air) {
     private fun flameColor(i: Int, t: Float): Int {
         val flicker = 0.82f + 0.18f * (((i * 31 + frame * 7) and 7) / 7f)
         val heat = flameHeat(i, t).coerceIn(0f, 1.2f)
-        val r = minOf(1f, 0.55f + 0.5f * heat) * flicker
-        val g = (heat * heat * 0.8f) * flicker
-        val b = (heat * heat * heat * 0.45f) * flicker
+        var r = minOf(1f, 0.55f + 0.5f * heat) * flicker
+        var g = (heat * heat * 0.8f) * flicker
+        var b = (heat * heat * heat * 0.45f) * flicker
+        // цвет пламени зависит от топлива (mixId пламени): газ — синий, магний — белый, натрий — жёлтый
+        val fuel = w.mixId[i].toInt()
+        val fc = if (fuel > 0 && fuel < Mat.count) Mat.flameColor[fuel] else 0
+        if (fc != 0) {
+            val m = 0.7f * minOf(1f, heat + 0.3f)
+            r += (((fc shr 16) and 0xFF) / 255f * flicker - r) * m
+            g += (((fc shr 8) and 0xFF) / 255f * flicker - g) * m
+            b += ((fc and 0xFF) / 255f * flicker - b) * m
+        }
         return rgb(r, g, b, (0.3f + 0.7f * heat).coerceIn(0f, 1f))
     }
 

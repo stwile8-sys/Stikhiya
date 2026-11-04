@@ -447,8 +447,9 @@ class Motion(private val w: World, private val air: Air) {
         var cur = i
         var cx = x
         var cy = y
-        val nx = minOf(3, steps(abs(ux)))
-        val ny = minOf(3, steps(abs(uy)))
+        // сильный поток (струя из сопла) несёт газ и пламя далеко
+        val nx = minOf(8, steps(abs(ux)))
+        val ny = minOf(8, steps(abs(uy)))
         val dx = if (ux > 0f) 1 else -1
         val dy = if (uy > 0f) 1 else -1
         var kx = 0

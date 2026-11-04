@@ -362,16 +362,29 @@ class Chemistry(private val w: World, private val air: Air) {
         if (Mat.flammable[id]) {
             val t = w.temp[i]
             if (t >= Mat.autoIgnition[id] || (t >= Mat.flashPoint[id] && Neighbors.hasType(w, i, Mat.FLAME))) {
+                // горючему газу нужен кислород: из воздуха вокруг или из соседнего чистого кислорода
+                val ox = Neighbors.randomOfType(w, i, Mat.OXYGEN)
+                if (ox < 0 && air.oxygen(i) < Air.O2_FLAME_MIN) return
                 // горючий газ сгорает почти мгновенно
                 val mass = w.cellMass(i)
+                val need = mass * Mat.oxygenNeed[id]
+                if (ox >= 0) {
+                    w.amt[ox] -= need / maxOf(w.massDensity(Mat.OXYGEN, w.temp[ox]) * Units.VOL, 1e-9f)
+                    if (w.amt[ox] < 0.05f) w.toAir(ox)
+                } else air.consumeOxygen(i, need)
                 val e = Mat.burnHeat[id] * mass * 0.8f
-                val ft = Mat.flameTemp[id]
+                val ft = if (ox >= 0) Mat.flameTemp[id] * 1.15f else Mat.flameTemp[id]
+                val a0 = w.amt[i]
                 w.transform(i, Mat.FLAME)
                 w.temp[i] = ft
                 w.amt[i] = flameAmount(e, ft, t)
+                w.mixId[i] = id.toShort() // пламя помнит топливо — по нему цвет
                 // водород, метан, пары бензина с воздухом — взрыв: горячие газы распирают воздух
                 val gy = Mat.gasYield[id]
                 if (gy > 0f) air.addPressure(i, gy * 2f)
+                // продукты горения горячее в разы — расширяются; в трубе с соплом это реактивная струя
+                val dv = a0 * ((ft + Units.KELVIN) / (t + Units.KELVIN) - 1f)
+                air.addPressure(i, dv / (air.cs * air.cs) * 101.325f * EXPLOSION_SCALE)
             }
         }
     }
@@ -451,6 +464,7 @@ class Chemistry(private val w: World, private val air: Air) {
             val ambient = w.temp[up]
             w.put(up, Mat.FLAME, ft)
             w.amt[up] = flameAmount((1f - selfShare) * e, ft, ambient)
+            w.mixId[up] = id.toShort()
         } else {
             val fl = Neighbors.randomOfType(w, i, Mat.FLAME)
             if (fl >= 0) w.amt[fl] = minOf(40f, w.amt[fl] + flameAmount((1f - selfShare) * e, ft, Units.AMBIENT))
