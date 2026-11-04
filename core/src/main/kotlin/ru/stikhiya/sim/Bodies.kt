@@ -6,6 +6,11 @@ import org.jbox2d.dynamics.Body
 import org.jbox2d.dynamics.BodyDef
 import org.jbox2d.dynamics.BodyType
 import org.jbox2d.dynamics.FixtureDef
+import org.jbox2d.dynamics.joints.Joint
+import org.jbox2d.dynamics.joints.MouseJoint
+import org.jbox2d.dynamics.joints.MouseJointDef
+import org.jbox2d.dynamics.joints.RevoluteJointDef
+import org.jbox2d.dynamics.joints.WeldJointDef
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
@@ -62,6 +67,8 @@ class RigidBody(val id: Int, val lw: Int, val lh: Int) {
 const val B = 0.1f
 val BOX_G = Units.GRAVITY / Units.CELL * B          // ускорение свободного падения в единицах Box2D
 const val BOX_FORCE = B / Units.CELL                 // Н → сила Box2D (масса та же, ускорение ×10)
+const val HINGE = 1
+const val FIX = 2
 /** Сколько силы одна клетка песка под телом выдерживает при ударе (≈ 40 кПа на 1 см²). */
 const val POWDER_STOP_FORCE = 4f * BOX_FORCE
 
@@ -93,9 +100,100 @@ class Bodies(private val w: World, private val air: Air) {
     fun get(id: Int): RigidBody? = bodies.getOrNull(id - 1)
 
     fun clear() {
+        release()
+        joints.clear()
         for (rb in bodies) if (rb != null) physics.destroyBody(rb.body)
         bodies.clear()
         terrainHash = Long.MIN_VALUE
+    }
+
+    // ================= Шарниры, крепления, рука =================
+
+    /** Неподвижная опора без формы — к ней крепятся шарниры и крепления «к стене». */
+    private val ground: Body = physics.createBody(BodyDef())
+
+    /** Соединение: a — номер тела, b — номер второго тела (0 — стена/фон), точка в клетках мира. */
+    class Link(val kind: Int, val a: Int, val b: Int, val x: Float, val y: Float, val joint: Joint)
+
+    val joints = ArrayList<Link>()
+    private var mouse: MouseJoint? = null
+    var grabbed = 0
+        private set
+
+    /** Номер тела в клетке (0 — нет). */
+    fun bodyAt(x: Int, y: Int): Int = if (w.inside(x, y)) w.owner[w.idx(x, y)].toInt() else 0
+
+    private fun bodyOrGround(id: Int): Body = if (id == 0) ground else (get(id)?.body ?: ground)
+
+    /**
+     * Шарнир: тело a вращается вокруг точки (x, y) относительно тела b (0 — неподвижная стена).
+     * Небольшое трение в оси — дверца не болтается вечно.
+     */
+    fun hinge(a: Int, b: Int, x: Float, y: Float): Boolean {
+        val ra = get(a) ?: return false
+        if (a == b) return false
+        val def = RevoluteJointDef()
+        v1.set(x * B, y * B)
+        def.initialize(ra.body, bodyOrGround(b), v1)
+        def.collideConnected = false
+        def.enableMotor = true
+        def.motorSpeed = 0f
+        def.maxMotorTorque = ra.body.mass * BOX_G * 0.02f
+        ra.body.isAwake = true
+        val j = physics.createJoint(def)
+        joints += Link(HINGE, a, b, x, y, j)
+        return true
+    }
+
+    /** Крепление: тело намертво держится за стену (или за другое тело) в точке (x, y). Повторно — снять. */
+    fun toggleFix(a: Int, b: Int, x: Float, y: Float): Boolean {
+        val ra = get(a) ?: return false
+        val old = joints.firstOrNull { it.kind == FIX && it.a == a }
+        if (old != null) { physics.destroyJoint(old.joint); joints.remove(old); ra.body.isAwake = true; return false }
+        val def = WeldJointDef()
+        v1.set(x * B, y * B)
+        def.initialize(ra.body, bodyOrGround(if (b == a) 0 else b), v1)
+        val j = physics.createJoint(def)
+        joints += Link(FIX, a, if (b == a) 0 else b, x, y, j)
+        return true
+    }
+
+    fun isFixed(a: Int) = joints.any { it.kind == FIX && it.a == a }
+
+    /** Рука берёт тело пальцем: пружинная связь тянет точку тела к пальцу. */
+    fun grab(id: Int, x: Float, y: Float): Boolean {
+        release()
+        val rb = get(id) ?: return false
+        val def = MouseJointDef()
+        def.bodyA = ground
+        def.bodyB = rb.body
+        def.target.set(x * B, y * B)
+        // держит в 40 раз больше веса: тяжёлое тянется медленнее лёгкого, но поднимается
+        def.maxForce = rb.body.mass * BOX_G * 40f
+        def.frequencyHz = 5f
+        def.dampingRatio = 0.7f
+        rb.body.isAwake = true
+        mouse = physics.createJoint(def) as MouseJoint
+        grabbed = id
+        return true
+    }
+
+    fun drag(x: Float, y: Float) {
+        val m = mouse ?: return
+        v1.set(x * B, y * B)
+        m.target = v1
+    }
+
+    fun release() {
+        mouse?.let { physics.destroyJoint(it) }
+        mouse = null
+        grabbed = 0
+    }
+
+    /** Тело исчезло (сгорело, стёрто): его соединения пропадают вместе с ним. */
+    private fun forgetJoints(id: Int) {
+        joints.removeAll { it.a == id || it.b == id }
+        if (grabbed == id) { mouse = null; grabbed = 0 }
     }
 
     // ================= Шаг =================
@@ -723,6 +821,7 @@ class Bodies(private val w: World, private val air: Air) {
     }
 
     private fun destroy(rb: RigidBody) {
+        forgetJoints(rb.id)
         physics.destroyBody(rb.body)
         bodies[rb.id - 1] = null
     }

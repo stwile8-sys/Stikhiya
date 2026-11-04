@@ -160,7 +160,19 @@ class WorldRenderer(private val w: World, private val air: Air) {
                 ViewMode.PRESSURE -> pressure(i)
                 ViewMode.OXYGEN -> oxygen(i)
             }
+            // шарнир: пока рисуется деталь, всё остальное полупрозрачное
+            val m = dimMask
+            if (m != null && !m[i]) colors[i] = dim(colors[i])
         }
+    }
+
+    /** Маска клеток, которые не надо приглушать (null — ничего не приглушаем). */
+    @Volatile var dimMask: BooleanArray? = null
+
+    private fun dim(c: Int): Int {
+        val k = 0.4f
+        val r = ((c ushr 24) and 0xFF) / 255f; val g = ((c ushr 16) and 0xFF) / 255f; val b = ((c ushr 8) and 0xFF) / 255f
+        return rgb(bgR + (r - bgR) * k, bgG + (g - bgG) * k, bgB + (b - bgB) * k, 1f)
     }
 
     fun draw(batch: SpriteBatch, x: Float, y: Float, width: Float, height: Float) {

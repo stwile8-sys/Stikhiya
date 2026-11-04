@@ -62,6 +62,21 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     private val pointerY = FloatArray(10)
     private val pointerDown = BooleanArray(10)
     private var panPointer = -1
+    // рука держит тело
+    private var grabPointer = -1
+    // шарнир: ось поставлена, ждём деталь
+    private var pivotX = Float.NaN
+    private var pivotY = 0f
+    private var pivotBody = 0
+    private var pivotTapPointer = -1
+    private var hingeMask: BooleanArray? = null
+    private var toast = ""
+    private var toastUntil = 0L
+
+    private fun say(s: String) { toast = s; toastUntil = System.currentTimeMillis() + 2500L }
+
+    private fun cellX(x: Float) = (x - originX) / (baseScale * zoom)
+    private fun cellY(y: Float) = (y - originY) / (baseScale * zoom)
     private var panStartX = 0f
     private var panStartY = 0f
     private var panOriginX = 0f
@@ -293,6 +308,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         ui.drawToastBackground(shapes, small)
         shapes.end()
         drawBrushOutline()
+        drawJoints()
 
         batch.begin()
         ui.drawText(batch, font, small)
@@ -341,6 +357,30 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         // резкий скачок давления — взрыв
         if (maxP > 10f && maxP > prevMaxP * 1.4f + 4f) sound.boom(0.25f + maxP / 150f)
         prevMaxP = maxP
+    }
+
+    /** Оси шарниров и крепления — кружки поверх мира. */
+    private fun drawJoints() {
+        val js = sim.bodies.joints
+        if (js.isEmpty() && pivotX.isNaN()) return
+        val sc = baseScale * zoom
+        shapes.begin(ShapeRenderer.ShapeType.Line)
+        val p = org.jbox2d.common.Vec2()
+        for (l in js) {
+            l.joint.getAnchorA(p)
+            val x = originX + p.x / ru.stikhiya.sim.B * sc
+            val y = originY + p.y / ru.stikhiya.sim.B * sc
+            if (l.kind == ru.stikhiya.sim.HINGE) shapes.setColor(1f, 0.85f, 0.3f, 0.9f) else shapes.setColor(0.5f, 0.8f, 1f, 0.9f)
+            shapes.circle(x, ui.screenH - y, maxOf(3f, 1.2f * sc), 16)
+        }
+        if (!pivotX.isNaN()) {
+            shapes.setColor(1f, 0.85f, 0.3f, 1f)
+            val x = originX + pivotX * sc; val y = originY + pivotY * sc
+            shapes.circle(x, ui.screenH - y, maxOf(5f, 2f * sc), 20)
+            shapes.line(x - 8f, ui.screenH - y, x + 8f, ui.screenH - y)
+            shapes.line(x, ui.screenH - y - 8f, x, ui.screenH - y + 8f)
+        }
+        shapes.end()
     }
 
     private fun drawBrushOutline() {
@@ -392,8 +432,11 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             val f = k / n.toFloat()
             val x = lastCellX + (cx - lastCellX) * f
             val y = lastCellY + (cy - lastCellY) * f
-            val rec = if (st.tool == Tool.DRAW && st.solidFalls && Mat.isSolid(st.substance) && !Brush.isFixed(st.substance)) stroke else null
+            val hingePart = st.tool == Tool.HINGE && !pivotX.isNaN() && Mat.isSolid(st.substance)
+            val rec = if ((st.tool == Tool.DRAW && st.solidFalls && Mat.isSolid(st.substance) && !Brush.isFixed(st.substance)) || hingePart) stroke else null
+            val before = stroke.n
             Brush.apply(world, st.tool, st.substance, x.toInt(), y.toInt(), st.brush, rec)
+            hingeMask?.let { m -> for (k in before until stroke.n) m[stroke.a[k]] = true }
         }
         lastCellX = cx
         lastCellY = cy
@@ -421,7 +464,11 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     // ---------------- Подписи ----------------
 
     override fun hudText(): String {
-        val name = if (st.tool == Tool.DRAW) Mat[st.substance].name else st.tool.title
+        if (System.currentTimeMillis() < toastUntil) return toast
+        var name = if (st.tool == Tool.DRAW) Mat[st.substance].name else st.tool.title
+        if (st.tool == Tool.HINGE) name = if (pivotX.isNaN()) "Шарнир: коснитесь, где будет ось" else "Шарнир: рисуйте деталь (${Mat[st.substance].name.lowercase(RU)})"
+        if (st.tool == Tool.FIX) name = "Крепление: коснитесь тела"
+        if (st.tool == Tool.HAND) name = "Рука: тело — тянуть, пусто — двигать карту"
         val tSec = sim.time.toInt()
         val time = "%d:%02d".format(tSec / 60, tSec % 60)
         return "$name   ·   ${Gdx.graphics.framesPerSecond} к/с   ·   шаг ${f1(simMs)} мс   ·   мир $time"
@@ -507,11 +554,32 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 startPinch()
                 return true
             }
+            if (st.tool != Tool.HINGE && !pivotX.isNaN()) cancelHinge()
             if (st.tool == Tool.HAND) {
-                // пустая рука: палец двигает карту
+                // рука на теле — берёт его пальцем, на пустом месте — двигает карту
+                val id = sim.bodies.bodyAt(cellX(x).toInt(), cellY(y).toInt())
+                if (id != 0 && sim.bodies.grab(id, cellX(x), cellY(y))) { grabPointer = pointer; return true }
                 panPointer = pointer
                 panStartX = x; panStartY = y
                 panOriginX = originX; panOriginY = originY
+                return true
+            }
+            if (st.tool == Tool.FIX) {
+                val cx = cellX(x); val cy = cellY(y)
+                val id = sim.bodies.bodyAt(cx.toInt(), cy.toInt())
+                if (id == 0) say("Крепление: коснитесь тела (нарисованного при «Твёрдое: падает»)")
+                else say(if (sim.bodies.toggleFix(id, 0, cx, cy)) "Тело закреплено — коснитесь ещё раз, чтобы снять" else "Крепление снято")
+                return true
+            }
+            if (st.tool == Tool.HINGE && pivotX.isNaN()) {
+                // первое касание — ось шарнира; держится за тело под пальцем или за стену
+                pivotX = cellX(x); pivotY = cellY(y)
+                pivotBody = sim.bodies.bodyAt(pivotX.toInt(), pivotY.toInt())
+                pivotTapPointer = pointer
+                val m = BooleanArray(world.n)
+                hingeMask = m
+                renderer.dimMask = m
+                say(if (Mat.isSolid(st.substance)) "Ось поставлена. Нарисуйте деталь от оси" else "Ось поставлена. Выберите твёрдое вещество и рисуйте деталь")
                 return true
             }
             drawPointer = pointer
@@ -535,6 +603,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 clampView()
                 return true
             }
+            if (pointer == grabPointer) { sim.bodies.drag(cellX(x), cellY(y)); return true }
             if (pointer == drawPointer) { curScreenX = x; curScreenY = y }
             return true
         }
@@ -545,6 +614,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             ui.touchUp(screenX.toFloat(), screenY.toFloat(), pointer)
             if (pointer == drawPointer) { finishStroke(); drawPointer = -1 }
             if (pointer == panPointer) panPointer = -1
+            if (pointer == grabPointer) { sim.bodies.release(); grabPointer = -1 }
+            if (pointer == pivotTapPointer) pivotTapPointer = -1
             if (pinching && pointerDown.count { it } < 2) pinching = false
             return true
         }
@@ -560,10 +631,35 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
 
     /** Мазок закончен: нарисованное твёрдое становится телами и начинает падать. */
     private fun finishStroke() {
+        if (st.tool == Tool.HINGE && !pivotX.isNaN()) {
+            if (stroke.n > 0) {
+                sim.bodies.create(stroke)
+                // деталь — тело, которому принадлежит клетка мазка, ближайшая к оси
+                var best = -1; var bd = Float.MAX_VALUE
+                for (k in 0 until stroke.n) {
+                    val i = stroke.a[k]
+                    val dx = i % world.w + 0.5f - pivotX; val dy = i / world.w + 0.5f - pivotY
+                    val d = dx * dx + dy * dy
+                    if (d < bd && world.owner[i].toInt() != 0) { bd = d; best = i }
+                }
+                val part = if (best >= 0) world.owner[best].toInt() else 0
+                if (part != 0 && sim.bodies.hinge(part, if (pivotBody == part) 0 else pivotBody, pivotX, pivotY))
+                    say("Деталь на шарнире. Откройте её «Рукой»")
+                stroke.clear()
+            }
+            cancelHinge()
+            return
+        }
         if (stroke.n > 0) {
             sim.bodies.create(stroke)
             stroke.clear()
         }
+    }
+
+    private fun cancelHinge() {
+        pivotX = Float.NaN
+        hingeMask = null
+        renderer.dimMask = null
     }
 
     private fun twoPointers(): IntArray? {

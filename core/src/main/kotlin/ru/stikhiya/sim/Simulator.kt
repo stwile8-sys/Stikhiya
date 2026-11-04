@@ -39,6 +39,8 @@ class Simulator(val world: World) {
 
 enum class Tool(val title: String, val inPanel: Boolean = true) {
     HAND("Рука"),
+    HINGE("Шарнир"),
+    FIX("Крепление"),
     DRAW("Кисть"),
     ERASE("Ластик"),
     HEAT("Нагреть"),
@@ -55,7 +57,7 @@ enum class Tool(val title: String, val inPanel: Boolean = true) {
 object Brush {
     /** rec — сюда записываются нарисованные твёрдые клетки (из них потом делаются тела). */
     fun apply(w: World, tool: Tool, substance: Int, cx: Int, cy: Int, r: Int, rec: IntList? = null) {
-        if (tool == Tool.HAND || tool == Tool.INSPECT || !tool.inPanel) return
+        if (tool == Tool.HAND || tool == Tool.INSPECT || tool == Tool.FIX || !tool.inPanel) return
         val r2 = r * r + r
         for (dy in -r..r) {
             for (dx in -r..r) {
@@ -65,7 +67,7 @@ object Brush {
                 if (!w.inside(x, y)) continue
                 val i = w.idx(x, y)
                 when (tool) {
-                    Tool.DRAW -> if (draw(w, i, substance) && rec != null && Mat.isSolid(substance)) rec.add(i)
+                    Tool.DRAW, Tool.HINGE -> if (draw(w, i, substance) && rec != null && Mat.isSolid(substance)) rec.add(i)
                     Tool.ERASE -> if (w.type[i].toInt() != Mat.AIR) w.toAir(i)
                     Tool.HEAT -> heatCell(w, i, 15f)
                     Tool.COOL -> heatCell(w, i, -15f)
