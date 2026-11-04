@@ -411,11 +411,13 @@ class Motion(private val w: World, private val air: Air) {
                 }
             }
             if (moved < 0 && w.rnd() < 0.5f) {
-                // диффузия в стороны
-                val dx = if (w.rnd() < 0.5f) -1 else 1
-                if (cx + dx in 0 until ww) {
-                    val j = cur + dx
-                    if (w.type[j].toInt() == Mat.AIR) { move(cur, j); moved = j }
+                // диффузия: в воздух, а изредка и сквозь другой газ — газы перемешиваются
+                val r = w.rndInt(4)
+                val j = Neighbors.at(w, cur, if (r < 2) 2 + r else r - 2)
+                if (j >= 0) {
+                    val tj = w.type[j].toInt()
+                    if (tj == Mat.AIR && j != cur - ww && j != cur + ww) { move(cur, j); moved = j }
+                    else if (tj != Mat.AIR && tj != w.type[cur].toInt() && Mat.phase[tj] == Phase.GAS.ordinal && w.rnd() < 0.25f) { move(cur, j); moved = j }
                 }
             }
             if (moved < 0) break
@@ -441,8 +443,26 @@ class Motion(private val w: World, private val air: Air) {
 
     /** Газ и пламя переносятся ветром. true — клетка сдвинулась. */
     private fun gasWind(i: Int, x: Int, y: Int): Boolean {
-        val ux = air.windX(i) * air.cellsPerTick
-        val uy = air.windY(i) * air.cellsPerTick
+        var ux = air.windX(i) * air.cellsPerTick
+        var uy = air.windY(i) * air.cellsPerTick
+        // истечение из камеры: газ рвётся туда, где давление ниже (сопло) со скоростью ~√(2Δp/ρ)
+        val c = air.cellOf(i)
+        val p0 = air.pv[c]
+        if (p0 > NOZZLE_DP) {
+            val aw = air.aw
+            val cxx = c % aw
+            var best = p0; var dx = 0; var dy = 0
+            if (cxx > 0 && !air.blocked[c - 1] && air.pv[c - 1] < best) { best = air.pv[c - 1]; dx = -1; dy = 0 }
+            if (cxx < aw - 1 && !air.blocked[c + 1] && air.pv[c + 1] < best) { best = air.pv[c + 1]; dx = 1; dy = 0 }
+            if (c >= aw && !air.blocked[c - aw] && air.pv[c - aw] < best) { best = air.pv[c - aw]; dx = 0; dy = -1 }
+            if (c + aw < air.an && !air.blocked[c + aw] && air.pv[c + aw] < best) { best = air.pv[c + aw]; dx = 0; dy = 1 }
+            val dp = p0 - best
+            if (dp > NOZZLE_DP) {
+                val rho = maxOf(0.15f, w.massDensity(w.type[i].toInt(), w.temp[i]))
+                val v = kotlin.math.sqrt(2f * p0 * 1000f / rho) * NOZZLE_K * air.cellsPerTick
+                ux += dx * v; uy += dy * v
+            }
+        }
         if (abs(ux) + abs(uy) < 0.1f) return false
         var cur = i
         var cx = x
@@ -520,6 +540,11 @@ class Motion(private val w: World, private val air: Air) {
             w.stamp[j] = tick
             splits++
         }
+    }
+
+    companion object {
+        const val NOZZLE_DP = 1.0f    // кПа
+        const val NOZZLE_K = 0.06f    // игровой масштаб: звук в игре медленнее настоящего
     }
 
     @Suppress("unused")

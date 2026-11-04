@@ -371,7 +371,13 @@ class Chemistry(private val w: World, private val air: Air) {
         }
         if (w.cure[i] > 0.5f || w.rnd() > 0.6f) return
         val t = w.type[up].toInt()
-        if (t != Mat.AIR && t != Mat.FLAME) return
+        if (!Mat.isGas(t)) return
+        // над соплом другой газ: горючий поджигаем, кислород раздувает пламя
+        if (t != Mat.AIR && t != Mat.FLAME) {
+            if (Mat.flammable[t]) w.temp[up] = maxOf(w.temp[up], Mat.autoIgnition[t] + 10f)
+            else if (t == Mat.OXYGEN) { w.put(up, Mat.FLAME, Mat.flameTemp[propaneId] * 1.15f); w.amt[up] = 3f; w.mixId[up] = propaneId.toShort() }
+            return
+        }
         if (air.oxygen(up) < Air.O2_FLAME_MIN) return
         // ~3,3 мг пропана в секунду на клетку сопла ≈ 150 Вт
         val fuel = 3.3e-6f * Units.DT / 0.6f

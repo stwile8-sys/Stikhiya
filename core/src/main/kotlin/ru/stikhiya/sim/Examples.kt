@@ -272,9 +272,12 @@ object Examples {
         rect(s, "steel", 161, 88, 175, 92); rect(s, "steel", 161, 108, 175, 112)
         // у задней стенки чередуются форсунки пропана и кислорода — газы сразу смешиваются
         val tap = Mat.id("tap")
-        for (y in 74..126) { val i = w.idx(104, y); w.put(i, tap); w.mixId[i] = Mat.id(if (y % 2 == 0) "propane" else "oxygen").toShort() }
-        // запальники
-        for (y in 80..120 step 10) rect(s, "burner", 106, y, 106, y)
+        for (y in 74..126) {
+            val i = w.idx(104, y); w.put(i, tap); w.mixId[i] = Mat.id("propane").toShort()
+            if (y % 2 == 0) { val k = w.idx(108, y); w.put(k, tap); w.mixId[k] = Mat.id("oxygen").toShort() }
+        }
+        // запальник посередине камеры
+        rect(s, "burner", 135, 126, 136, 126)
         return "Камера сгорания, как у ракеты: краны льют пропан и кислород, запальники поджигают смесь, газ горит и " +
             "расширяется — из сопла выходит струя раскалённого газа (вид «температура», «ветер», «давление»)."
     }

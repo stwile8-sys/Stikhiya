@@ -1,6 +1,6 @@
 import ru.stikhiya.sim.*
 fun main(args: Array<String>) {
-    val names = if (args.isEmpty()) listOf("Электрическая цепь") else args.toList()
+    val names = if (args.isEmpty()) listOf("Реактивная струя") else args.toList()
     for (ex in Examples.list.filter { it.title in names }) {
         val w = World(480, 200); val s = Simulator(w); println("== ${ex.title}: ${ex.build(s)}")
         for (t in listOf(5, 15, 30)) { while (s.tick < t * 60) s.step()

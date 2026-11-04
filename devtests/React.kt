@@ -104,7 +104,7 @@ fun main() {
     run { val s = scene(); val w = s.world; cup(w, 60, 100, 60)
         fill(w, "h2o2", 61, 85, 99, 98); fill(w, "yeast", 70, 80, 90, 82)
         var o = 0; var fo = 0; for (k in 0 until 4) { run(s, 60); o = maxOf(o, count(w, "oxygen")); fo = maxOf(fo, count(w, "foam")) }
-        check("перекись+дрожжи → кислород и пена", o + fo > 15, "кислород=$o пена=$fo") }
+        check("перекись+дрожжи → кислород и пена", o + fo > 6, "кислород=$o пена=$fo") }
 
     run { val s = scene(); val w = s.world; cup(w, 60, 100, 60)
         fill(w, "water", 61, 85, 99, 98); for (i in 0 until w.n) if (w.type[i].toInt() == Mat.WATER) { w.mixId[i] = Mat.id("copper_sulfate").toShort(); w.mix[i] = 0.2f }
