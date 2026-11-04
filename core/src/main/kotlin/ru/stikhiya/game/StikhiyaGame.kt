@@ -10,6 +10,9 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import ru.stikhiya.sim.Brush
+import ru.stikhiya.sim.B
+import ru.stikhiya.sim.HINGE
+import org.jbox2d.common.Vec2
 import ru.stikhiya.sim.Examples
 import ru.stikhiya.sim.SceneIO
 import ru.stikhiya.sim.IntList
@@ -365,12 +368,12 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         if (js.isEmpty() && pivotX.isNaN()) return
         val sc = baseScale * zoom
         shapes.begin(ShapeRenderer.ShapeType.Line)
-        val p = org.jbox2d.common.Vec2()
+        val p = Vec2()
         for (l in js) {
             l.joint.getAnchorA(p)
-            val x = originX + p.x / ru.stikhiya.sim.B * sc
-            val y = originY + p.y / ru.stikhiya.sim.B * sc
-            if (l.kind == ru.stikhiya.sim.HINGE) shapes.setColor(1f, 0.85f, 0.3f, 0.9f) else shapes.setColor(0.5f, 0.8f, 1f, 0.9f)
+            val x = originX + p.x / B * sc
+            val y = originY + p.y / B * sc
+            if (l.kind == HINGE) shapes.setColor(1f, 0.85f, 0.3f, 0.9f) else shapes.setColor(0.5f, 0.8f, 1f, 0.9f)
             shapes.circle(x, ui.screenH - y, maxOf(3f, 1.2f * sc), 16)
         }
         if (!pivotX.isNaN()) {
