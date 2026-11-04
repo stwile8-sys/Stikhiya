@@ -10,6 +10,7 @@ class Simulator(val world: World) {
     val hydro = Hydro(world)
     val reactions = Reactions(world, air)
     val plants = Plants(world)
+    val electric = Electric(world, air)
     var tick = 0
         private set
 
@@ -24,6 +25,7 @@ class Simulator(val world: World) {
         tick++
         heat.step()
         chemistry.step()
+        electric.step()
         reactions.step()
         plants.step()
         air.step()
@@ -36,6 +38,7 @@ class Simulator(val world: World) {
         bodies.clear()
         world.clear()
         air.clear()
+        electric.clear()
     }
 }
 
@@ -52,7 +55,8 @@ enum class Tool(val title: String, val inPanel: Boolean = true) {
     // кисти воздуха — в категории «Особые»
     WIND("Ветер", false),
     PRESSURE_UP("Давление +", false),
-    PRESSURE_DOWN("Давление −", false)
+    PRESSURE_DOWN("Давление −", false),
+    LIGHTNING("Молния", false)
 }
 
 /** Инструменты игрока: рисование веществом, ластик, нагрев, охлаждение, перемешивание. */

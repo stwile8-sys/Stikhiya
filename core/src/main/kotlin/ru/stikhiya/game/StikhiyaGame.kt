@@ -537,6 +537,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         val p = air.pressure(i) / 1000f
         val wx = air.windX(i)
         val wy = air.windY(i)
+        if (sim.electric.active && sim.electric.isConductor(i))
+            sb.append('\n').append("Напряжение ${f1(sim.electric.phi[i])} В · ток ${f2(sim.electric.currentAt(i))} А")
         sb.append('\n').append("Давление ${f1(p)} кПа · ветер ${f1(hypot(wx, wy))} м/с · кислород ${f1(air.oxygen(i) * 100f)} %")
         val boilTo = Mat.hotTo[id]
         if (Mat.isLiquid(id) && boilTo >= 0 && Mat.isGas(boilTo)) {
@@ -586,6 +588,10 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 panPointer = pointer
                 panStartX = x; panStartY = y
                 panOriginX = originX; panOriginY = originY
+                return true
+            }
+            if (st.tool == Tool.LIGHTNING) {
+                sim.electric.lightning(cellX(x).toInt().coerceIn(0, world.w - 1), cellY(y).toInt().coerceIn(0, world.h - 1))
                 return true
             }
             if (st.tool == Tool.FIX) {
