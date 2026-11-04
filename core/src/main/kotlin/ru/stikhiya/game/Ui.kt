@@ -519,7 +519,12 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
         when (dragKind) {
             1 -> forEachChip { r, id ->
                 if (r.contains(x, y)) {
-                    if (id < 0) st.tool = chipTool(id) else st.pick(id)
+                    if (id < 0) st.tool = chipTool(id) else {
+                        st.pick(id)
+                        // подсказка о веществе — что с ним можно сделать
+                        val d = Mat[id].description
+                        if (d.isNotEmpty()) toast(Mat[id].name + ": " + d, 4f)
+                    }
                 }
             }
             2 -> forEachTab { r, idx ->

@@ -511,6 +511,9 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             }
             sb.append('\n').append("$what ${pct(world.cure[i])}")
         }
+        if (Mat[id].category == ru.stikhiya.sim.Category.LIFE && Mat.isSolid(id) && id != sim.plants.dry)
+            sb.append('\n').append("Воды в растении ${pct(world.mix[i])}")
+        if (id == Mat.id("tap") && world.mixId[i].toInt() != 0) sb.append('\n').append("Льёт: ${Mat[world.mixId[i].toInt()].name.lowercase(RU)}")
         if (Mat.isGas(id) && id != Mat.AIR && world.amt[i] > 1.05f) sb.append('\n').append("Сжат в ${f1(world.amt[i])} раза")
         val air = sim.air
         val p = air.pressure(i) / 1000f
