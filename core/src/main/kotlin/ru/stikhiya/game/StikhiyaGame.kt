@@ -12,6 +12,8 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import ru.stikhiya.sim.Brush
 import ru.stikhiya.sim.B
 import ru.stikhiya.sim.HINGE
+import ru.stikhiya.sim.ROPE
+import ru.stikhiya.sim.Craft
 import org.jbox2d.common.Vec2
 import ru.stikhiya.sim.Examples
 import ru.stikhiya.sim.SceneIO
@@ -370,7 +372,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         shapes.begin(ShapeRenderer.ShapeType.Line)
         val p = Vec2()
         for (l in js) {
-            if (l.kind == ru.stikhiya.sim.ROPE) continue
+            if (l.kind == ROPE) continue
             l.joint.getAnchorA(p)
             val x = originX + p.x / B * sc
             val y = originY + p.y / B * sc
@@ -435,7 +437,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
             else -> {}
         }
         // верёвка и трос: запоминаем путь пальца, звенья появятся, когда палец отпустят
-        if (st.tool == Tool.DRAW && ru.stikhiya.sim.Craft.isRope(st.substance)) {
+        if (st.tool == Tool.DRAW && Craft.isRope(st.substance)) {
             if (ropeN == 0 || hypot(cx - ropeX[ropeN - 1], cy - ropeY[ropeN - 1]) >= 1f) {
                 if (ropeN == ropeX.size) { ropeX = ropeX.copyOf(ropeN * 2); ropeY = ropeY.copyOf(ropeN * 2) }
                 ropeX[ropeN] = cx; ropeY[ropeN] = cy; ropeN++
