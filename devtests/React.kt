@@ -98,7 +98,7 @@ fun main() {
 
     run { val s = scene(); val w = s.world; s.chemSpeed = 3600f; cup(w, 60, 100, 60)
         fill(w, "water", 61, 90, 99, 98); fill(w, "iron", 61, 89, 99, 89)
-        run(s, 1200)
+        s.chemSpeed = 3600f * 20f; run(s, 1200)
         check("ржавление", count(w, "rust") > 0, "ржавчины=${count(w, "rust")}") }
 
     var bad = false

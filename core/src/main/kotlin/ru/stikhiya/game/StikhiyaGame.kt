@@ -10,6 +10,8 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import ru.stikhiya.sim.Brush
+import ru.stikhiya.sim.Examples
+import ru.stikhiya.sim.SceneIO
 import ru.stikhiya.sim.IntList
 import ru.stikhiya.sim.Mat
 import ru.stikhiya.sim.Simulator
@@ -83,6 +85,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         buildStartScene()
         sound.muted = !prefs().getBoolean("sound", true)
         renderer.glowOn = prefs().getBoolean("glow", true)
+        ui.toast("«Меню» справа: готовые примеры (печь, плотина, термит, натрий…) и сохранение сцен. «Поиск» снизу — найти вещество.", 8f)
         sound.start()
     }
 
@@ -119,8 +122,72 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         ui.showMenu("Меню", menuRows())
     }
 
+    // ---------------- Сцены: сохранение, загрузка, примеры ----------------
+
+    private val slots = 6
+    private fun slotFile(k: Int) = Gdx.files.local("scenes/slot$k.stk")
+    private val slotInfo = arrayOfNulls<String>(slots + 1)
+
+    private fun readSlots() {
+        val fmt = java.text.SimpleDateFormat("d MMM HH:mm", RU)
+        for (k in 1..slots) {
+            val f = slotFile(k)
+            slotInfo[k] = if (!f.exists()) null else try {
+                f.read().use { inp -> SceneIO.header(inp) }?.let { "${it.name} · ${fmt.format(java.util.Date(it.time))}" }
+            } catch (e: Exception) { null }
+        }
+    }
+
+    private fun saveSlot(k: Int, name: String) {
+        try {
+            slotFile(k).write(false).use { out -> SceneIO.save(sim, out, name) }
+            ui.toast("Сохранено в слот $k: $name", 3f)
+        } catch (e: Exception) {
+            ui.toast("Не удалось сохранить: ${e.message}", 5f)
+        }
+    }
+
+    private fun askSave(k: Int) {
+        val def = slotInfo[k]?.substringBefore(" · ") ?: "Сцена $k"
+        Gdx.input.getTextInput(object : Input.TextInputListener {
+            override fun input(text: String) {
+                Gdx.app.postRunnable { saveSlot(k, text.trim().ifEmpty { def }) }
+            }
+            override fun canceled() {}
+        }, "Название сцены", def, "")
+    }
+
+    private fun loadSlot(k: Int) {
+        val f = slotFile(k)
+        if (!f.exists()) { ui.toast("Слот $k пуст", 2f); return }
+        val ok = try { f.read().use { inp -> SceneIO.load(sim, inp) } } catch (e: Exception) { false }
+        ui.toast(if (ok) "Загружено: ${slotInfo[k] ?: "слот $k"}" else "Не удалось открыть сохранение", 3f)
+    }
+
+    private fun loadExample(ex: Examples.Example) {
+        val tip = ex.build(sim)
+        st.paused = false
+        ui.toast(ex.title + ". " + tip, 12f)
+    }
+
     private fun menuRows(): List<List<MenuEntry>> {
+        readSlots()
         val rows = ArrayList<List<MenuEntry>>()
+        rows += listOf(MenuEntry({ "Примеры" }, header = true))
+        val ex = Examples.list
+        for (k in ex.indices step 3) {
+            rows += (k until minOf(k + 3, ex.size)).map { j ->
+                MenuEntry({ ex[j].title }, keepOpen = false) { loadExample(ex[j]) }
+            }
+        }
+        rows += listOf(MenuEntry({ "Мои сцены (хранятся в памяти телефона)" }, header = true))
+        for (k in 1..slots) {
+            rows += listOf(
+                MenuEntry({ "$k. " + (slotInfo[k] ?: "пусто") }, header = true),
+                MenuEntry({ "Сохранить" }, keepOpen = false) { askSave(k) },
+                MenuEntry({ "Загрузить" }, keepOpen = false) { loadSlot(k) }
+            )
+        }
         rows += listOf(MenuEntry({ "Скорость химии (сушка, застывание, схватывание)" }, header = true))
         rows += st.chemNames.indices.map { k ->
             MenuEntry({ st.chemNames[k] }, { st.chemIndex == k }) { st.chemIndex = k }
@@ -223,6 +290,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         shapes.begin(ShapeRenderer.ShapeType.Filled)
         ui.drawShapes(shapes)
         ui.drawInspectBackground(shapes, font.lineHeight)
+        ui.drawToastBackground(shapes, small)
         shapes.end()
         drawBrushOutline()
 

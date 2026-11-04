@@ -86,6 +86,41 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
 
     private val layoutText = GlyphLayout()
 
+    // подсказка поверх мира (после загрузки примера)
+    private var toastText: String? = null
+    private var toastUntil = 0L
+    private var toastLines: List<String> = emptyList()
+    private var toastFont: BitmapFont? = null
+
+    fun toast(text: String, seconds: Float = 9f) {
+        toastText = text
+        toastUntil = System.currentTimeMillis() + (seconds * 1000).toLong()
+        toastFont = null
+    }
+
+    /** Перенос по словам под ширину. */
+    private fun wrap(font: BitmapFont, text: String, width: Float): List<String> {
+        val lines = ArrayList<String>()
+        var cur = StringBuilder()
+        for (word in text.split(' ')) {
+            val trial = if (cur.isEmpty()) word else "$cur $word"
+            layoutText.setText(font, trial)
+            if (layoutText.width > width && cur.isNotEmpty()) { lines += cur.toString(); cur = StringBuilder(word) }
+            else { cur = StringBuilder(trial) }
+        }
+        if (cur.isNotEmpty()) lines += cur.toString()
+        return lines
+    }
+
+    private fun toastRect(font: BitmapFont): Rect? {
+        val t = toastText ?: return null
+        if (System.currentTimeMillis() > toastUntil) { toastText = null; return null }
+        val mw = minOf(world.w - 16f * u, 520f * u)
+        if (toastFont !== font) { toastLines = wrap(font, t, mw - 16f * u); toastFont = font }
+        val h = toastLines.size * font.lineHeight + 10f * u
+        return Rect(world.x + (world.w - mw) / 2f, world.y + world.h - h - 8f * u, mw, h)
+    }
+
     // палитра интерфейса
     private val cPanel = Color(0x161A21FF)
     private val cButton = Color(0x232934FF)
@@ -308,6 +343,15 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
             font.color = cText
             text(batch, font, info, world.x + 8f * u, world.y + 22f * u)
         }
+        // подсказка
+        if (menuRows == null) {
+            val tr = toastRect(small)
+            if (tr != null) {
+                small.color = cText
+                var ty = tr.y + 5f * u + small.lineHeight / 2f
+                for (line in toastLines) { text(batch, small, line, tr.x + 8f * u, ty); ty += small.lineHeight }
+            }
+        }
         // меню
         if (menuRows != null) {
             centered(batch, font, menuTitle, menuRect, menuRect.y + 13f * u, cText)
@@ -318,6 +362,13 @@ class Ui(private val st: GameState, private val callbacks: Callbacks) {
                 } else centered(batch, small, e.title(), r, r.y + r.h / 2f, cText)
             }
         }
+    }
+
+    fun drawToastBackground(sh: ShapeRenderer, font: BitmapFont) {
+        if (menuRows != null) return
+        val r = toastRect(font) ?: return
+        sh.setColor(0.05f, 0.07f, 0.1f, 0.85f)
+        rectGl(sh, r)
     }
 
     fun drawInspectBackground(sh: ShapeRenderer, fontLineH: Float) {

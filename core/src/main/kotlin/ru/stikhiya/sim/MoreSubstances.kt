@@ -364,7 +364,6 @@ object MoreSubstances {
         Substance("candle", "Свеча", P.SOLID, C.ORGANIC, 0xF6EFE0, density = 900f, heatCapacity = 2900f,
             conductivity = 0.25f, colorVar = 0.02f, flashPoint = 150f, autoIgnition = 245f, burnTime = 400f,
             burnHeat = 4.2e7f, smoke = 0.01f, flameTemp = 1000f, oxygenNeed = 3.4f, fineness = 0.6f,
-            hotAt = 70f, hotTo = "molten_paraffin", hotLatent = 2.0e5f,
             description = "парафин с фитилём: подожгите сверху — горит долго и ровно"),
         wood("balsa", "Бальса", 0xE0C79A, 150f, 0.05f, 12f, "легчайшее дерево, 150 кг/м³"),
         wood("pine", "Сосна", 0xC8975A, 500f, 0.12f, 30f, "500 кг/м³, смолистая"),

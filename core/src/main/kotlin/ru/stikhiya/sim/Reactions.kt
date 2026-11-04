@@ -88,11 +88,11 @@ class Reactions(private val w: World, private val air: Air) {
         add(R("quicklime", "water", 1.5f, toA = "slaked_lime", toB = "air", probB = 0.3f, heat = 1100f))
         add(R("quicklime", "seawater", 1.5f, toA = "slaked_lime", toB = "air", probB = 0.3f, heat = 1100f))
         // ---- ржавчина: железо + вода (+ воздух) ----
-        add(R("iron", "water", 1f / 2e5f, toA = "rust", slow = true))
-        add(R("steel", "water", 1f / 4e5f, toA = "rust", slow = true))
-        add(R("cast_iron", "water", 1f / 2.5e5f, toA = "rust", slow = true))
-        add(R("iron_filings", "water", 1f / 3e4f, toA = "rust", slow = true))
-        add(R("iron", "salt", 1f / 1e5f, toA = "rust", slow = true))
+        add(R("iron", "water", 1f / 3e6f, toA = "rust", slow = true))
+        add(R("steel", "water", 1f / 6e6f, toA = "rust", slow = true))
+        add(R("cast_iron", "water", 1f / 4e6f, toA = "rust", slow = true))
+        add(R("iron_filings", "water", 1f / 2e5f, toA = "rust", slow = true))
+        add(R("iron", "salt", 1f / 1e6f, toA = "rust", slow = true))
         // ---- еда ----
         add(R("flour", "water", 1.2f, toA = "dough", toB = "air", probB = 0.6f))
         add(R("flour", "milk", 1.2f, toA = "dough", toB = "air", probB = 0.6f))
