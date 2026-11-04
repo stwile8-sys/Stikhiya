@@ -106,6 +106,27 @@ class Reactions(private val w: World, private val air: Air) {
         add(R("styrofoam", "acetone", 3f, toA = "air", toB = "molten_plastic", probB = 0.02f, warm = false))
         // ---- аммиак растворяется в воде ----
         add(R("ammonia", "water", 2f, toA = "air", heat = 30f))
+        // ---- медный купорос: железо в растворе покрывается медью ----
+        add(R("iron", "water", 0.3f, toA = "copper", soluteB = "copper_sulfate"))
+        add(R("steel", "water", 0.25f, toA = "copper", soluteB = "copper_sulfate"))
+        add(R("iron_filings", "water", 1f, toA = "copper", soluteB = "copper_sulfate"))
+        add(R("zinc", "water", 0.4f, toA = "copper", soluteB = "copper_sulfate"))
+        // ---- окислители и перекись ----
+        add(R("permanganate", "glycerin", 0.4f, toA = "air", partA = 0.3f, toB = "flame", probB = 0.4f, heat = 600f, flame = 0.3f, gas = "steam"))
+        add(R("permanganate", "h2o2", 3f, toB = "water", probB = 0.1f, heat = 150f, gas = "oxygen", gasAmt = 3f, extra = "foam", extraProb = 0.5f))
+        add(R("yeast", "h2o2", 4f, toB = "water", probB = 0.1f, heat = 100f, gas = "oxygen", gasAmt = 2f, extra = "foam", extraProb = 0.7f))
+        add(R("h2o2", null, 1f / 3e5f, toA = "water", gas = "oxygen", slow = true))
+        add(R("soda", "water", 2f, toA = "co2", soluteB = "citric_acid", extra = "foam", extraProb = 0.6f, heat = -30f))
+        add(R("malachite", "hcl", 0.3f, toA = "air", partA = 0.2f, gas = "co2", heat = 20f))
+        // ---- щелочные и щёлочноземельные металлы в воде ----
+        add(R("lithium", "water", 0.5f, toA = "air", partA = 0.05f, toB = "lye", probB = 0.05f, heat = 300f, gas = "hydrogen"))
+        for (k in listOf("potassium", "molten_potassium"))
+            add(R(k, "water", 6f, toA = "air", partA = 0.2f, toB = "lye", probB = 0.2f, heat = 1200f, gas = "hydrogen", gasAmt = 3f, flame = 0.4f))
+        add(R("calcium", "water", 0.3f, toA = "air", partA = 0.05f, heat = 200f, gas = "hydrogen"))
+        // ---- кухня ----
+        add(R("rice", "water", 0.05f, toA = "cooked_rice", toB = "air", probB = 0.5f, minT = 85f, warm = false))
+        add(R("popcorn_kernel", null, 3f, toA = "popcorn", extra = "popcorn", extraProb = 1f, minT = 180f, warm = false))
+
         // ---- распад и перегонка (без пары) ----
         add(R("foam", null, 0.07f, toA = "air", gas = "co2", gasAmt = 0.3f, warm = false))
         add(R("braga", null, 0.4f, toA = "water", extra = "alcohol_vapor", extraProb = 1f, heat = -60f, minT = 78f, warm = false))
@@ -114,6 +135,7 @@ class Reactions(private val w: World, private val air: Air) {
     // ---- таблицы по номерам ----
     private val cnt = Mat.count
     private val pair = IntArray(cnt * cnt) { -1 }
+    private val next = IntArray(list.size) { -1 }   // следующая реакция той же пары
     private val single = IntArray(cnt) { -1 }
     private val active = BooleanArray(cnt)
     private val rToA = IntArray(list.size)
@@ -134,7 +156,10 @@ class Reactions(private val w: World, private val air: Air) {
             if (r.b == null) single[a] = k
             else {
                 val b = Mat.id(r.b)
-                pair[a * cnt + b] = k
+                // несколько реакций одной пары — цепочкой (ржавление и медный купорос у железа с водой)
+                val key = a * cnt + b
+                if (pair[key] < 0) pair[key] = k
+                else { var q = pair[key]; while (next[q] >= 0) q = next[q]; next[q] = k }
             }
             active[a] = true
             rToA[k] = Mat.idOrNeg(r.toA)
@@ -178,15 +203,31 @@ class Reactions(private val w: World, private val air: Air) {
         }
         val j = Neighbors.at(w, i, w.rndInt(4))
         if (j < 0) return
-        val k = pair[id * cnt + w.type[j].toInt()]
-        if (k < 0) return
+        var k = pair[id * cnt + w.type[j].toInt()]
+        while (k >= 0) {
+            if (tryPair(k, i, j)) return
+            k = next[k]
+        }
+    }
+
+    private fun tryPair(k: Int, i: Int, j: Int): Boolean {
         val r = list[k]
         val t = w.temp[i]
-        if (t < r.minT || t > r.maxT) return
-        if (r.burningA && (w.flags[i].toInt() and burningBit) == 0) return
-        if (rSolute[k] >= 0 && (w.mixId[j].toInt() != rSolute[k] || w.mix[j] < 0.01f)) return
-        if (w.owner[j].toInt() != 0 && rToB[k] >= 0) return // тела не превращаем по клеткам
+        if (t < r.minT || t > r.maxT) return false
+        if (r.burningA && (w.flags[i].toInt() and burningBit) == 0) return false
+        val sol = rSolute[k]
+        if (sol >= 0 && (w.mixId[j].toInt() != sol || w.mix[j] < 0.01f)) return false
+        if (sol < 0 && w.mixId[j].toInt() != 0 && hasSoluteReaction(k)) return false
+        if (w.owner[j].toInt() != 0 && rToB[k] >= 0) return false // тела не превращаем по клеткам
         if (w.rnd() < prob(r, maxOf(t, w.temp[j]))) apply(k, r, i, j)
+        return true
+    }
+
+    /** В цепочке есть реакция с растворённым веществом — она главнее (купорос вместо ржавчины). */
+    private fun hasSoluteReaction(k: Int): Boolean {
+        var q = next[k]
+        while (q >= 0) { if (rSolute[q] >= 0) return true; q = next[q] }
+        return false
     }
 
     private fun prob(r: R, t: Float): Float {
@@ -237,11 +278,19 @@ class Reactions(private val w: World, private val air: Air) {
         }
     }
 
-    /** Свободная клетка рядом с участниками (воздух) — или −1. */
+    /** Свободная клетка рядом с участниками (воздух, а если его нет — любой газ) — или −1. */
     private fun place(i: Int, j: Int): Int {
         val a = Neighbors.randomAir(w, i, preferUp = true)
         if (a >= 0) return a
-        return if (j >= 0) Neighbors.randomAir(w, j, preferUp = true) else -1
+        if (j >= 0) { val b = Neighbors.randomAir(w, j, preferUp = true); if (b >= 0) return b }
+        for (c in intArrayOf(i, j)) {
+            if (c < 0) continue
+            for (d in 0 until 4) {
+                val n = Neighbors.at(w, c, d)
+                if (n >= 0 && Mat.isGas(w.type[n].toInt())) { w.toAir(n); return n }
+            }
+        }
+        return -1
     }
 
     private fun spawn(id: Int, at: Int, amt: Float, t: Float) {

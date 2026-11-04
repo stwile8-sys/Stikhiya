@@ -176,7 +176,10 @@ object Substances {
         Solubility("salt", "seawater", sat20 = 0.36f, tempCoef = 0.0011f, time = 3f),
         Solubility("sugar", "milk", sat20 = 1.5f, tempCoef = 0.018f, time = 6f),
         Solubility("salt", "vinegar", sat20 = 0.3f, tempCoef = 0.001f, time = 4f),
-        Solubility("sugar", "braga", sat20 = 1.8f, tempCoef = 0.018f, time = 6f)
+        Solubility("sugar", "braga", sat20 = 1.8f, tempCoef = 0.018f, time = 6f),
+        Solubility("copper_sulfate", "water", sat20 = 0.32f, tempCoef = 0.03f, time = 5f),
+        Solubility("permanganate", "water", sat20 = 0.064f, tempCoef = 0.04f, time = 4f),
+        Solubility("citric_acid", "water", sat20 = 1.47f, tempCoef = 0.01f, time = 4f)
     )
 
     val all: List<Substance> = base + glued + MoreSubstances.list

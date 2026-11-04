@@ -101,6 +101,25 @@ fun main() {
         s.chemSpeed = 3600f * 20f; run(s, 1200)
         check("ржавление", count(w, "rust") > 0, "ржавчины=${count(w, "rust")}") }
 
+    run { val s = scene(); val w = s.world; cup(w, 60, 100, 60)
+        fill(w, "h2o2", 61, 85, 99, 98); fill(w, "yeast", 70, 80, 90, 82)
+        var o = 0; var fo = 0; for (k in 0 until 4) { run(s, 60); o = maxOf(o, count(w, "oxygen")); fo = maxOf(fo, count(w, "foam")) }
+        check("перекись+дрожжи → кислород и пена", o + fo > 15, "кислород=$o пена=$fo") }
+
+    run { val s = scene(); val w = s.world; cup(w, 60, 100, 60)
+        fill(w, "water", 61, 85, 99, 98); for (i in 0 until w.n) if (w.type[i].toInt() == Mat.WATER) { w.mixId[i] = Mat.id("copper_sulfate").toShort(); w.mix[i] = 0.2f }
+        fill(w, "iron", 75, 90, 85, 94); run(s, 600)
+        check("железо в медном купоросе", count(w, "copper") > 5, "меди=${count(w, "copper")} железа=${count(w, "iron")}") }
+
+    run { val s = scene(); val w = s.world; fill(w, "brick", 40, 95, 120, 98)
+        fill(w, "popcorn_kernel", 70, 90, 90, 94, 200f); run(s, 120)
+        check("попкорн", count(w, "popcorn") > 100, "попкорна=${count(w, "popcorn")} зёрен=${count(w, "popcorn_kernel")}") }
+
+    run { val s = scene(); val w = s.world; fill(w, "glass", 60, 95, 100, 98)
+        fill(w, "glycerin", 70, 92, 90, 94); fill(w, "permanganate", 72, 88, 88, 91)
+        var fl = 0; for (k in 0 until 20) { run(s, 60); fl = maxOf(fl, count(w, "flame")) }
+        check("марганцовка+глицерин вспыхивают", fl > 5, "огонь=$fl") }
+
     var bad = false
     println(if (fails == 0) "Все реакции работают" else "Провалено: $fails")
 }
