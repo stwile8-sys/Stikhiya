@@ -18,7 +18,7 @@ object Craft {
         Substance("cloth", "Ткань", P.SOLID, C.ORGANIC, 0xC9B8A0, density = 15f, heatCapacity = 1300f,
             conductivity = 0.06f, colorVar = 0.05f, flashPoint = 255f, autoIgnition = 400f, burnTime = 2f,
             burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.1f, flameTemp = 900f, oxygenNeed = 1.2f,
-            fineness = 0.6f, description = "хлопковое полотно 150 г/м², не пропускает воздух; горит"),
+            fineness = 0.6f, description = "хлопковое полотно 150 г/м²: гибкое (рисуется пальцем, как верёвка), висит и колышется на ветру; горит"),
         Substance("balloon_nylon", "Нейлон для шара", P.SOLID, C.ORGANIC, 0xD8402E, density = 2.5f, heatCapacity = 1700f,
             conductivity = 0.25f, colorVar = 0.08f, hotAt = 260f, hotTo = "molten_plastic", hotLatent = 2.0e5f,
             flashPoint = 400f, autoIgnition = 420f, burnTime = 1f, burnHeat = 3.1e7f, smoke = 0.3f,
@@ -120,6 +120,7 @@ object Craft {
     val ROPE get() = Mat.id("rope")
     val CABLE get() = Mat.id("cable")
     /** Рисуется цепочкой гибких звеньев. */
-    fun isRope(id: Int) = id == ROPE || id == CABLE
+    val CLOTH get() = Mat.id("cloth")
+    fun isRope(id: Int) = id == ROPE || id == CABLE || id == CLOTH
     val BURNER get() = Mat.id("burner")
 }

@@ -356,7 +356,7 @@ class Bodies(private val w: World, private val air: Air) {
             val rb = bodies[k] ?: continue
             if (rb.dirty) rebuild(rb)
         }
-        physics.step(Units.DT, 8, 3)
+        physics.step(Units.DT, 10, 10)
         for (rb in bodies) if (rb != null) stamp(rb)
     }
 
@@ -641,13 +641,19 @@ class Bodies(private val w: World, private val air: Air) {
         val rho = body.mass / (maxOf(rb.count, 1) * Units.VOL)
         if (rho < 100f) body.angularVelocity = body.angularVelocity * (0.97f + 0.03f * rho / 100f)
         val lv = body.linearVelocity
-        val vx = lv.x / B * Units.CELL   // м/с
-        val vy = lv.y / B * Units.CELL
+        // скорость относительно воздуха: ветер тянет ткань, флаг, лёгкие куски
+        var wx = 0f; var wy = 0f
+        val wc = body.worldCenter
+        val cx = (wc.x / B).toInt(); val cy = (wc.y / B).toInt()
+        if (w.inside(cx, cy)) { val ci = w.idx(cx, cy); wx = air.windX(ci); wy = air.windY(ci) }
+        val vx = lv.x / B * Units.CELL - wx   // м/с
+        val vy = lv.y / B * Units.CELL - wy
         val v2 = vx * vx + vy * vy
         if (v2 < 1f) return
         val v = kotlin.math.sqrt(v2)
         val area = kotlin.math.sqrt(rb.count.toFloat()) * Units.AREA     // лобовая площадь, м²
-        val f = 0.5f * 1.2f * 1.0f * area * v2 * BOX_FORCE              // Н → Box2D
+        // лёгкое звено ткани не рвём: сопротивление не больше нескольких весов (иначе цепочка «плывёт»)
+        val f = minOf(0.5f * 1.2f * 1.0f * area * v2 * BOX_FORCE, body.mass * BOX_G * 3f)
         v1.set(-vx / v * f, -vy / v * f)
         body.applyForceToCenter(v1)
     }
