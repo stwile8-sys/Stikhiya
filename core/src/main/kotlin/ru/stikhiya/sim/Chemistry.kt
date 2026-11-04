@@ -355,7 +355,7 @@ class Chemistry(private val w: World, private val air: Air) {
         val up = Neighbors.at(w, i, 0)
         if (up < 0) return
         // автоматика: термодатчик под куполом (у ближайшего потолка над соплом, как у настоящего шара);
-        // выше 200 °C горелка притухает. Под открытым небом горит всегда.
+        // выше 170 °C горелка притухает. Под открытым небом горит всегда.
         if (w.rnd() < 0.05f) {
             var j = up
             var k = 0
@@ -427,7 +427,9 @@ class Chemistry(private val w: World, private val air: Air) {
     }
 
     private fun flame(i: Int) {
-        w.life[i] -= Units.DT
+        // в быстрой струе (сопло) догорающий газ уносится далеко: факел вытягивается
+        val v = kotlin.math.abs(air.windX(i)) + kotlin.math.abs(air.windY(i))
+        w.life[i] -= if (v > 1.5f) Units.DT * (1.5f / v) else Units.DT
         if (w.life[i] <= 0f || w.temp[i] < 450f) w.toAir(i)
     }
 
@@ -582,6 +584,6 @@ class Chemistry(private val w: World, private val air: Air) {
         /** Игровой масштаб давления взрыва (звук в игре медленнее настоящего). */
         const val EXPLOSION_SCALE = 0.02f
         /** Горелка держит воздух над собой не горячее этого, °C. */
-        const val THERMOSTAT = 200f
+        const val THERMOSTAT = 170f
     }
 }

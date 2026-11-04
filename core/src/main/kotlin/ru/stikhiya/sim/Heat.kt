@@ -158,13 +158,18 @@ class Heat(private val w: World, private val air: Air) {
     }
 
     /** Тёплый воздух поднимается, холодный опускается; немного перемешивается в стороны. */
+    private var flip = false
+
     private fun convectAir() {
         val ww = w.w
         val type = w.type
         val temp = w.temp
+        // обход строки то слева направо, то справа налево — иначе тёплый воздух «сносит» в одну сторону
+        flip = !flip
         for (y in 1 until w.h) {
             val row = y * ww
-            for (x in 0 until ww) {
+            for (xx in 0 until ww) {
+                val x = if (flip) ww - 1 - xx else xx
                 val i = row + x
                 if (type[i].toInt() != Mat.AIR) continue
                 val j = i - ww

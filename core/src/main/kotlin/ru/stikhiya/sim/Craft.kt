@@ -24,9 +24,9 @@ object Craft {
             flashPoint = 400f, autoIgnition = 420f, burnTime = 1f, burnHeat = 3.1e7f, smoke = 0.3f,
             flameTemp = 900f, oxygenNeed = 2.5f, fineness = 0.6f,
             description = "сверхлёгкая оболочка воздушного шара 25 г/м²; нейлон-6,6 плавится при 260 °C"),
-        Substance("nomex", "Огнеупорная ткань", P.SOLID, C.ORGANIC, 0xE0C060, density = 8f, heatCapacity = 1200f,
+        Substance("nomex", "Огнеупорная ткань", P.SOLID, C.ORGANIC, 0xE0C060, density = 5f, heatCapacity = 1200f,
             conductivity = 0.05f, colorVar = 0.05f, hotAt = 450f, hotTo = "ash", hotLatent = 5e5f,
-            description = "арамид (номекс) 80 г/м²: не горит, выдерживает ~400 °C — для юбки шара у горелки"),
+            description = "арамид (номекс) 50 г/м²: не горит, выдерживает ~400 °C — для юбки шара у горелки"),
         Substance("rope", "Верёвка", P.SOLID, C.ORGANIC, 0xB89A62, density = 20f, heatCapacity = 1300f,
             conductivity = 0.1f, colorVar = 0.06f, flashPoint = 260f, autoIgnition = 400f, burnTime = 6f,
             burnHeat = 1.6e7f, burnTo = "ash", burnResidue = 0.1f, smoke = 0.1f, flameTemp = 900f, oxygenNeed = 1.2f,
@@ -43,7 +43,7 @@ object Craft {
         Substance("nichrome", "Нихромовая спираль", P.SOLID, C.METAL, 0x9C8A7A, density = 500f, heatCapacity = 450f,
             conductivity = 11f, colorVar = 0.04f, hotAt = 1400f, hotTo = "molten_steel", hotLatent = 2.9e5f,
             description = "спираль ~0,5 Ом на клетку: ток греет её докрасна — плитка, поджиг"),
-        Substance("burner", "Горелка", P.SOLID, C.SPECIAL, 0x6E7B88, density = 300f, heatCapacity = 490f,
+        Substance("burner", "Горелка", P.SOLID, C.SPECIAL, 0x6E7B88, density = 150f, heatCapacity = 490f,
             conductivity = 50f, colorVar = 0.03f,
             description = "пропановая горелка ~150 Вт на клетку сопла: над ней всегда пламя (баллон внутри)")
     )
@@ -91,8 +91,9 @@ object Craft {
                 fNow = f
                 val x = (cx + side * (r - (r - mouth) * f)).toInt()
                 val y = (cy + skirtH * f).toInt()
-                if (lx != Int.MIN_VALUE && x != lx && y != ly) { putN(lx, y); putN(lx - side, y) }
-                putN(x, y); putN(x - side, y)
+                // юбка в одну клетку, но без щелей по диагонали
+                if (lx != Int.MIN_VALUE && x != lx && y != ly) putN(lx, y)
+                putN(x, y)
                 lx = x; ly = y
             }
         }
@@ -110,6 +111,9 @@ object Craft {
         // тросы цепляются за бока горелки, сопло сверху свободно
         b.createRope(floatArrayOf(cx - mouth + 1.5f, bx0 - 0.5f), floatArrayOf(my, by + 0.5f), 2, CABLE)
         b.createRope(floatArrayOf(cx + mouth - 1.5f, bx0 + burners + 0.5f), floatArrayOf(my, by + 0.5f), 2, CABLE)
+        // жёсткая рама держит горелку точно под устьем — пламя не раскачивается и не лижет ткань
+        val bb = w.owner[w.idx(bx0, by)].toInt()
+        if (bb != 0 && bb != env) b.toggleFix(bb, env, cx.toFloat(), by.toFloat())
         return env
     }
 
