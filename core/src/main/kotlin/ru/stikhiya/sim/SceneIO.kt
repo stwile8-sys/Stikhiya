@@ -1,5 +1,6 @@
 package ru.stikhiya.sim
 
+import org.jbox2d.common.Vec2
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.InputStream
@@ -14,7 +15,7 @@ import java.util.zip.GZIPOutputStream
  */
 object SceneIO {
     private const val MAGIC = 0x53544B31 // "STK1"
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     class Header(val name: String, val time: Long, val w: Int, val h: Int)
 
@@ -41,6 +42,15 @@ object SceneIO {
             for (i in 0 until n) d.writeShort(w.owner[i].toInt())
             d.writeInt(air.an)
             floats(d, air.pv, air.an); floats(d, air.vx, air.an); floats(d, air.vy, air.an); floats(d, air.o2, air.an)
+            // шарниры и крепления: точка — где ось сейчас (тело могло повернуться)
+            val js = sim.bodies.joints
+            d.writeInt(js.size)
+            val p = Vec2()
+            for (l in js) {
+                l.joint.getAnchorA(p)
+                d.writeInt(l.kind); d.writeInt(l.a); d.writeInt(l.b)
+                d.writeFloat(p.x / B); d.writeFloat(p.y / B)
+            }
         }
     }
 
@@ -65,7 +75,8 @@ object SceneIO {
         try {
             DataInputStream(GZIPInputStream(inp.buffered(1 shl 16))).use { d ->
                 if (d.readInt() != MAGIC) return false
-                if (d.readInt() > VERSION) return false
+                val version = d.readInt()
+                if (version > VERSION) return false
                 d.readUTF(); d.readLong()
                 val ww = d.readInt(); val hh = d.readInt()
                 if (ww != w.w || hh != w.h) return false
@@ -85,6 +96,14 @@ object SceneIO {
                 val an = d.readInt()
                 val pv = FloatArray(an); val avx = FloatArray(an); val avy = FloatArray(an); val o2 = FloatArray(an)
                 floats(d, pv, an); floats(d, avx, an); floats(d, avy, an); floats(d, o2, an)
+                val links = ArrayList<FloatArray>()
+                if (version >= 2) {
+                    val nj = d.readInt()
+                    repeat(nj) {
+                        val kind = d.readInt(); val a = d.readInt(); val b = d.readInt()
+                        links += floatArrayOf(kind.toFloat(), a.toFloat(), b.toFloat(), d.readFloat(), d.readFloat())
+                    }
+                }
 
                 sim.clear()
                 System.arraycopy(type, 0, w.type, 0, n)
@@ -113,7 +132,18 @@ object SceneIO {
                     if (!Mat.isSolid(w.type[i].toInt())) continue
                     groups.getOrPut(o) { IntList(64) }.add(i)
                 }
-                for (g in groups.values) sim.bodies.create(g)
+                // старый номер тела → новый
+                val remap = HashMap<Int, Int>()
+                for ((old, g) in groups) {
+                    sim.bodies.create(g)
+                    val nid = w.owner[g.a[0]].toInt()
+                    if (nid != 0) remap[old] = nid
+                }
+                for (l in links) {
+                    val a = remap[l[1].toInt()] ?: continue
+                    val b = if (l[2].toInt() == 0) 0 else (remap[l[2].toInt()] ?: continue)
+                    if (l[0].toInt() == HINGE) sim.bodies.hinge(a, b, l[3], l[4]) else sim.bodies.toggleFix(a, b, l[3], l[4])
+                }
                 return true
             }
         } catch (e: Exception) {

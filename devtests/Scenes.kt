@@ -25,4 +25,9 @@ fun main() {
     var diff = 0; for (i in 0 until w.n) if (types[i] != w.type[i] || temps[i] != w.temp[i]) diff++
     println("Сохранение: ${bytes.size / 1024} КБ, имя='${h?.name}', загружено=$ok, отличий клеток=$diff, тел было $bodies стало ${s.bodies.count}")
     run(s, 120); println("после загрузки 2 с: NaN=${nanCheck(w)}")
+    // шарнир печи сохраняется
+    Examples.list[0].build(s); run(s, 60)
+    val o2 = ByteArrayOutputStream(); SceneIO.save(s, o2, "печь"); val j0 = s.bodies.joints.size
+    SceneIO.load(s, ByteArrayInputStream(o2.toByteArray()))
+    println("Печь: шарниров было $j0, после загрузки ${s.bodies.joints.size}, тел ${s.bodies.count}")
 }
