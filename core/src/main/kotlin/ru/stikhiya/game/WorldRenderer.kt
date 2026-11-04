@@ -1,5 +1,6 @@
 package ru.stikhiya.game
 
+import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
@@ -45,6 +46,25 @@ class WorldRenderer(private val w: World, private val air: Air) {
     private val alpha = FloatArray(Mat.count) { Mat[it].alpha }
     private val colorVar = FloatArray(Mat.count) { Mat[it].colorVar }
 
+    // Свечение огня и раскалённого (как в The Powder Toy): размытый слой в полразрешения,
+    // рисуется поверх мира со сложением цветов
+    private val gw = (w.w + 1) / 2
+    private val gh = (w.h + 1) / 2
+    private val glR = FloatArray(gw * gh)
+    private val glG = FloatArray(gw * gh)
+    private val glB = FloatArray(gw * gh)
+    private val tmpR = FloatArray(gw * gh)
+    private val tmpG = FloatArray(gw * gh)
+    private val tmpB = FloatArray(gw * gh)
+    private val glowPix = Pixmap(gw, gh, Pixmap.Format.RGBA8888)
+    val glowTexture = Texture(glowPix).apply { setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear) }
+    private val glowColors = IntArray(gw * gh)
+    var glowOn = true
+
+    /** Чем ярче огонь на экране — тем громче треск (для звука). */
+    var fireLight = 0f
+        private set
+
     fun update() {
         frame++
         val n = w.n
@@ -57,6 +77,76 @@ class WorldRenderer(private val w: World, private val air: Air) {
         buf.asIntBuffer().put(colors)
         buf.position(0)
         texture.draw(pixmap, 0, 0)
+        if (mode == ViewMode.NORMAL && glowOn) updateGlow()
+    }
+
+    private fun updateGlow() {
+        val ww = w.w
+        // старое свечение гаснет за несколько кадров — пламя оставляет мягкий след
+        for (k in glR.indices) { glR[k] *= 0.55f; glG[k] *= 0.55f; glB[k] *= 0.55f }
+        var total = 0f
+        val type = w.type
+        val temp = w.temp
+        for (i in 0 until w.n) {
+            val id = type[i].toInt()
+            val t = temp[i]
+            var r: Float; var g: Float; var b: Float
+            if (id == Mat.FLAME) {
+                val k = flameHeat(i, t)
+                r = 0.55f * k; g = 0.26f * k * k; b = 0.06f * k * k * k
+                total += k
+            } else if (t > 550f && id != Mat.AIR) {
+                // раскалённое светится: тёмно-красное → оранжевое → белое
+                val k = ((t - 550f) / 900f).coerceIn(0f, 1.2f) * (if (Mat.isGas(id)) 0.3f else 1f)
+                r = 0.35f * k; g = 0.12f * k * k; b = 0.03f * k * k * k
+            } else if ((w.flags[i].toInt() and 2) != 0 && Mat.flammable[id]) {
+                r = 0.3f; g = 0.12f; b = 0.02f
+                total += 0.5f
+            } else continue
+            val c = ((i / ww) shr 1) * gw + ((i % ww) shr 1)
+            glR[c] += r; glG[c] += g; glB[c] += b
+        }
+        fireLight = total
+        blur(glR, tmpR); blur(glG, tmpG); blur(glB, tmpB)
+        for (k in glowColors.indices) {
+            val r = (glR[k] * 0.9f).coerceIn(0f, 1f)
+            val g = (glG[k] * 0.9f).coerceIn(0f, 1f)
+            val b = (glB[k] * 0.9f).coerceIn(0f, 1f)
+            glowColors[k] = ((r * 255f).toInt() shl 24) or ((g * 255f).toInt() shl 16) or ((b * 255f).toInt() shl 8) or 0xFF
+        }
+        val buf = glowPix.pixels
+        buf.order(ByteOrder.BIG_ENDIAN)
+        buf.position(0)
+        buf.asIntBuffer().put(glowColors)
+        buf.position(0)
+        glowTexture.draw(glowPix, 0, 0)
+    }
+
+    /** Размытие 1-2-1 по строкам и столбцам. */
+    private fun blur(a: FloatArray, t: FloatArray) {
+        for (y in 0 until gh) {
+            val row = y * gw
+            for (x in 0 until gw) {
+                val l = if (x > 0) a[row + x - 1] else a[row + x]
+                val r = if (x < gw - 1) a[row + x + 1] else a[row + x]
+                t[row + x] = (l + 2f * a[row + x] + r) * 0.25f
+            }
+        }
+        for (y in 0 until gh) {
+            val row = y * gw
+            for (x in 0 until gw) {
+                val u = if (y > 0) t[row - gw + x] else t[row + x]
+                val d = if (y < gh - 1) t[row + gw + x] else t[row + x]
+                a[row + x] = (u + 2f * t[row + x] + d) * 0.25f
+            }
+        }
+    }
+
+    /** Яркость языка пламени 0..1.4: свежий и горячий — ярче, догорающий — тусклее. */
+    private fun flameHeat(i: Int, t: Float): Float {
+        val life = (w.life[i] / 0.35f).coerceIn(0f, 1f)
+        val hot = ((t - 400f) / 900f).coerceIn(0f, 1.2f)
+        return (0.25f + 0.75f * life) * (0.4f + hot) * minOf(1.3f, 0.6f + w.amt[i] * 0.15f)
     }
 
     private fun paint(from: Int, to: Int) {
@@ -75,6 +165,12 @@ class WorldRenderer(private val w: World, private val air: Air) {
 
     fun draw(batch: SpriteBatch, x: Float, y: Float, width: Float, height: Float) {
         batch.draw(texture, x, y, width, height)
+        if (mode == ViewMode.NORMAL && glowOn) {
+            // свечение складывается с картинкой: огонь светится и подсвечивает соседей
+            batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE)
+            batch.draw(glowTexture, x, y, width, height)
+            batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+        }
     }
 
     // ---------------- Обычный вид ----------------
@@ -146,13 +242,17 @@ class WorldRenderer(private val w: World, private val air: Air) {
         return rgb(r, g, b, a)
     }
 
+    /**
+     * Язык пламени: у основания — жёлто-белый, выше — оранжевый, на кончике — тёмно-красный
+     * (цвет — от «возраста» горячего газа и его температуры).
+     */
     private fun flameColor(i: Int, t: Float): Int {
-        val flicker = 0.85f + 0.15f * (((i * 31 + frame * 7) and 7) / 7f)
-        val k = ((t - 450f) / 700f).coerceIn(0f, 1f)
-        val r = glowR(t + 150f) * flicker
-        val g = glowG(t + 150f) * flicker
-        val b = glowB(t + 150f) * flicker
-        return rgb(r, g, b, 0.35f + 0.6f * k * minOf(1f, w.amt[i] / 2f + 0.4f))
+        val flicker = 0.82f + 0.18f * (((i * 31 + frame * 7) and 7) / 7f)
+        val heat = flameHeat(i, t).coerceIn(0f, 1.2f)
+        val r = minOf(1f, 0.55f + 0.5f * heat) * flicker
+        val g = (heat * heat * 0.8f) * flicker
+        val b = (heat * heat * heat * 0.45f) * flicker
+        return rgb(r, g, b, (0.3f + 0.7f * heat).coerceIn(0f, 1f))
     }
 
     // ---------------- Температура ----------------
@@ -280,5 +380,7 @@ class WorldRenderer(private val w: World, private val air: Air) {
     fun dispose() {
         texture.dispose()
         pixmap.dispose()
+        glowTexture.dispose()
+        glowPix.dispose()
     }
 }

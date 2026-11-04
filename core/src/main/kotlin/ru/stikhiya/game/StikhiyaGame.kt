@@ -37,6 +37,8 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     private lateinit var small: BitmapFont
     private val st = GameState()
     private lateinit var ui: Ui
+    private val sound = SoundEngine()
+    private var prevMaxP = 0f
 
     // вид мира на экране
     private var baseScale = 1f
@@ -79,6 +81,68 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         Gdx.input.inputProcessor = Touch()
         resize(Gdx.graphics.width, Gdx.graphics.height)
         buildStartScene()
+        sound.muted = !prefs().getBoolean("sound", true)
+        renderer.glowOn = prefs().getBoolean("glow", true)
+        sound.start()
+    }
+
+    private fun prefs() = Gdx.app.getPreferences("stikhiya")
+
+    override fun pause() { sound.stop() }
+    override fun resume() { sound.start() }
+
+    override fun soundOn() = !sound.muted
+
+    override fun toggleSound() {
+        sound.muted = !sound.muted
+        prefs().putBoolean("sound", !sound.muted).flush()
+    }
+
+    override fun askSearch() {
+        Gdx.input.getTextInput(object : Input.TextInputListener {
+            override fun input(text: String) {
+                // ответ приходит не из потока отрисовки
+                Gdx.app.postRunnable {
+                    val q = text.trim()
+                    st.search = if (q.isEmpty()) null else q
+                    ui.resetChipsScroll()
+                }
+            }
+            override fun canceled() {
+                Gdx.app.postRunnable { st.search = null }
+            }
+        }, "Поиск вещества", st.search ?: "", "например: кислота, медь, газ")
+    }
+
+    override fun openMenu() {
+        if (ui.menuOpen) { ui.closeMenu(); return }
+        ui.showMenu("Меню", menuRows())
+    }
+
+    private fun menuRows(): List<List<MenuEntry>> {
+        val rows = ArrayList<List<MenuEntry>>()
+        rows += listOf(MenuEntry({ "Скорость химии (сушка, застывание, схватывание)" }, header = true))
+        rows += st.chemNames.indices.map { k ->
+            MenuEntry({ st.chemNames[k] }, { st.chemIndex == k }) { st.chemIndex = k }
+        }
+        rows += listOf(MenuEntry({ "Вид" }, header = true))
+        rows += listOf(
+            MenuEntry({ if (renderer.glowOn) "Свечение огня: вкл" else "Свечение огня: выкл" }, { renderer.glowOn }) {
+                renderer.glowOn = !renderer.glowOn
+                prefs().putBoolean("glow", renderer.glowOn).flush()
+            },
+            MenuEntry({ if (sound.muted) "Звук: выкл" else "Звук: вкл" }, { !sound.muted }) { toggleSound() }
+        )
+        rows += listOf(MenuEntry({ "Мир" }, header = true))
+        rows += listOf(
+            MenuEntry({ if (System.currentTimeMillis() < st.clearArmedUntil) "Точно очистить?" else "Очистить мир" },
+                { System.currentTimeMillis() < st.clearArmedUntil }) {
+                val now = System.currentTimeMillis()
+                if (now < st.clearArmedUntil) { clearWorld(); st.clearArmedUntil = 0L; ui.closeMenu() }
+                else st.clearArmedUntil = now + 2500L
+            }
+        )
+        return rows
     }
 
     private fun makeFonts() {
@@ -113,7 +177,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         for (y in WORLD_H - 3 until WORLD_H) for (x in 0 until WORLD_W) world.put(world.idx(x, y), stone)
     }
 
-    override fun clearWorld() {
+    fun clearWorld() {
         buildStartScene()
     }
 
@@ -143,6 +207,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
 
         renderer.mode = st.view
         renderer.update()
+        updateSound(steps > 0)
 
         Gdx.gl.glClearColor(0.055f, 0.067f, 0.086f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
@@ -163,6 +228,50 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         batch.begin()
         ui.drawText(batch, font, small)
         batch.end()
+    }
+
+    /** Громкость звуков — по тому, что сейчас происходит в мире. */
+    private fun updateSound(running: Boolean) {
+        if (sound.muted || !running) {
+            sound.fire = 0f; sound.splash = 0f; sound.hiss = 0f; sound.wind = 0f
+            return
+        }
+        val w = world
+        val type = w.type
+        var flames = 0
+        var falling = 0
+        var steam = 0
+        val burnChem = sim.chemistry
+        for (i in 0 until w.n) {
+            val id = type[i].toInt()
+            if (id == Mat.AIR) continue
+            when {
+                id == Mat.FLAME -> flames++
+                Mat.isLiquid(id) -> if (w.vy[i] > 1.2f || w.vy[i] < -0.4f || abs(w.vx[i]) > 2f) falling++
+                id == Mat.STEAM -> if (w.amt[i] > 1.3f) steam++
+                Mat.flammable[id] && burnChem.isBurning(i) -> flames++
+            }
+        }
+        sound.fire = sound.level(flames.toFloat(), 160f)
+        sound.splash = sound.level(falling.toFloat(), 90f)
+        sound.hiss = sound.level(steam.toFloat(), 40f)
+        val air = sim.air
+        var sum = 0f
+        var maxV = 0f
+        var maxP = 0f
+        var open = 0
+        for (c in 0 until air.an) {
+            if (air.blocked[c]) continue
+            val v = abs(air.vx[c]) + abs(air.vy[c])
+            sum += v; open++
+            if (v > maxV) maxV = v
+            if (air.pv[c] > maxP) maxP = air.pv[c]
+        }
+        val mean = if (open > 0) sum / open else 0f
+        sound.wind = ((mean - 0.05f) * 0.6f + (maxV - 2f) * 0.025f).coerceIn(0f, 1f)
+        // резкий скачок давления — взрыв
+        if (maxP > 10f && maxP > prevMaxP * 1.4f + 4f) sound.boom(0.25f + maxP / 150f)
+        prevMaxP = maxP
     }
 
     private fun drawBrushOutline() {
@@ -303,6 +412,7 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     private fun pct(v: Float) = String.format(RU, "%.0f %%", (v * 100f).coerceIn(0f, 100f))
 
     override fun dispose() {
+        sound.stop()
         renderer.dispose()
         batch.dispose()
         shapes.dispose()
@@ -371,7 +481,10 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
         }
 
         override fun keyDown(keycode: Int): Boolean {
-            if (keycode == Input.Keys.BACK) { st.paused = !st.paused; return true }
+            if (keycode == Input.Keys.BACK) {
+                if (ui.menuOpen) ui.closeMenu() else st.paused = !st.paused
+                return true
+            }
             return false
         }
     }

@@ -37,6 +37,19 @@ class GameState {
     /** Последнее выбранное вещество в каждой категории. */
     val lastInCategory = HashMap<Category, Int>()
 
+    /** Поиск вещества по названию (null — показываем категорию). */
+    var search: String? = null
+
+    fun searchResults(q: String): List<Int> {
+        val words = q.lowercase().split(' ').filter { it.isNotBlank() }
+        return Mat.list.indices.filter { id ->
+            val s = Mat[id]
+            if (!s.inPalette) return@filter false
+            val name = s.name.lowercase()
+            words.all { w -> name.contains(w) || s.description.lowercase().contains(w) }
+        }
+    }
+
     fun selectCategory(c: Category) {
         lastInCategory[category] = substance
         category = c
