@@ -231,6 +231,21 @@ class Motion(private val w: World, private val air: Air) {
             }
         }
 
+        // край высокого столба (прорыв плотины): давление столба выталкивает воду вбок, v ≈ √(2gH)
+        if (visc < 0.5f && y > 0 && w.type[i - ww].toInt() == id) {
+            val freeL = x > 0 && canFallInto(i - 1)
+            val freeR = x < ww - 1 && canFallInto(i + 1)
+            if (freeL != freeR) {
+                var hgt = 0
+                var k = i - ww
+                while (k >= 0 && hgt < 120 && w.type[k].toInt() == id) { hgt++; k -= ww }
+                if (hgt >= 2) {
+                    val push = sqrt(2f * Units.G * hgt) * (1f - visc)
+                    if (freeR && vx < push) vx = push
+                    if (freeL && vx > -push) vx = -push
+                }
+            }
+        }
         // растекание в стороны: по инерции туда, куда текла; упёрлась — волна отражается
         var dir = if (vx > 0.3f) 1 else if (vx < -0.3f) -1 else if ((w.flags[i].toInt() and 1) == 0) -1 else 1
         val spread = maxOf(Mat.spread[id], minOf(10, kotlin.math.abs(vx).toInt() + 1))
