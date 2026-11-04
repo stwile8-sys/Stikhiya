@@ -303,7 +303,16 @@ class Air(private val w: World) {
     private fun edges() {
         for (c in 0 until an) {
             // у самого огня кислород расходуется, но свежий воздух подходит со всех сторон
-            if (open[c]) o2[c] = O2_NORMAL
+            if (open[c]) { o2[c] = O2_NORMAL; continue }
+            if (!blocked[c]) continue
+            // стенка закрытой печи: мелкий воздух у внутренней поверхности — часть закрытого объёма
+            val x = c % aw
+            var m = o2[c]
+            if (x > 0 && !blocked[c - 1]) m = minOf(m, o2[c - 1])
+            if (x < aw - 1 && !blocked[c + 1]) m = minOf(m, o2[c + 1])
+            if (c >= aw && !blocked[c - aw]) m = minOf(m, o2[c - aw])
+            if (c + aw < an && !blocked[c + aw]) m = minOf(m, o2[c + aw])
+            o2[c] = m
         }
     }
 
@@ -333,6 +342,9 @@ class Air(private val w: World) {
             if (!blocked[c] || open[c]) continue
             val x = c % aw
             val y = c / aw
+            // но не стенка, за которой закрытый объём (печь): там воздух только свой
+            if ((x > 0 && !open[c - 1] && !blocked[c - 1]) || (x < aw - 1 && !open[c + 1] && !blocked[c + 1]) ||
+                (y > 0 && !open[c - aw] && !blocked[c - aw]) || (y < ah - 1 && !open[c + aw] && !blocked[c + aw])) continue
             if ((x > 0 && open[c - 1] && !blocked[c - 1]) || (x < aw - 1 && open[c + 1] && !blocked[c + 1]) ||
                 (y > 0 && open[c - aw] && !blocked[c - aw]) || (y < ah - 1 && open[c + aw] && !blocked[c + aw])) {
                 surfaceOpen[c] = true
@@ -446,7 +458,7 @@ class Air(private val w: World) {
 
     companion object {
         const val O2_NORMAL = 0.209f
-        const val DEPTH = 30f            // во сколько раз объём воздуха глубже среза
+        const val DEPTH = 2f             // объём воздуха на клетку среза (топливо тоже в срезе — печь задыхается честно)
         const val O2_FLAME_MIN = 0.14f   // ниже — пламя гаснет
         const val FAN_SPEED = 4f         // м/с
         const val BUOYANCY = 0.35f

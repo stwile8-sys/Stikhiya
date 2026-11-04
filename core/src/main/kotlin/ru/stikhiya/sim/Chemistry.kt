@@ -411,8 +411,8 @@ class Chemistry(private val w: World, private val air: Air) {
             return
         }
         // задохнулось: кончился кислород, засыпали, залили, углекислый газ
-        if (o2 < Air.O2_FLAME_MIN) { w.flags[i] = (f and burning.inv()).toByte(); return }
-        if (!contact) return
+        // засыпали, залили или задохнулось — гаснет; снова вспыхнет, только если раскалено и есть воздух
+        if (!contact || o2 < Air.O2_FLAME_MIN) { w.flags[i] = (f and burning.inv()).toByte(); return }
 
         // горит поверхность: чем больше граней открыто воздуху и чем больше кислорода, тем быстрее
         val faces = if (selfOx) 2 else oxygenFaces(i)
@@ -505,8 +505,8 @@ class Chemistry(private val w: World, private val air: Air) {
     /** Без доступа воздуха горячее дерево и опилки превращаются в уголь. */
     private fun charring(i: Int, id: Int) {
         if (w.temp[i] < Mat.charAt[id]) return
-        if ((w.flags[i].toInt() and burning) != 0 && Neighbors.hasOxygen(w, i)) return
-        if (Neighbors.hasOxygen(w, i)) return
+        // в задохнувшейся печи воздух рядом есть, но кислорода в нём мало — дрова томятся в уголь
+        if (Neighbors.hasOxygen(w, i) && air.oxygen(i) >= Air.O2_FLAME_MIN) return
         w.cure[i] += Units.DT / 20f * (1f + (w.temp[i] - Mat.charAt[id]) / 100f)
         if (w.cure[i] >= 1f) {
             w.transform(i, Mat.charTo[id])
