@@ -365,16 +365,23 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     /** Оси шарниров и крепления — кружки поверх мира. */
     private fun drawJoints() {
         val js = sim.bodies.joints
-        if (js.isEmpty() && pivotX.isNaN()) return
+        if (js.isEmpty() && pivotX.isNaN() && ropeN < 2) return
         val sc = baseScale * zoom
         shapes.begin(ShapeRenderer.ShapeType.Line)
         val p = Vec2()
         for (l in js) {
+            if (l.kind == ru.stikhiya.sim.ROPE) continue
             l.joint.getAnchorA(p)
             val x = originX + p.x / B * sc
             val y = originY + p.y / B * sc
             if (l.kind == HINGE) shapes.setColor(1f, 0.85f, 0.3f, 0.9f) else shapes.setColor(0.5f, 0.8f, 1f, 0.9f)
             shapes.circle(x, ui.screenH - y, maxOf(3f, 1.2f * sc), 16)
+        }
+        if (ropeN >= 2) {
+            // будущая верёвка — пунктиром по пути пальца
+            shapes.setColor(0.9f, 0.8f, 0.55f, 0.9f)
+            for (k in 1 until ropeN) shapes.line(originX + ropeX[k - 1] * sc, ui.screenH - originY - ropeY[k - 1] * sc,
+                originX + ropeX[k] * sc, ui.screenH - originY - ropeY[k] * sc)
         }
         if (!pivotX.isNaN()) {
             shapes.setColor(1f, 0.85f, 0.3f, 1f)
@@ -426,6 +433,15 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
                 return
             }
             else -> {}
+        }
+        // верёвка и трос: запоминаем путь пальца, звенья появятся, когда палец отпустят
+        if (st.tool == Tool.DRAW && ru.stikhiya.sim.Craft.isRope(st.substance)) {
+            if (ropeN == 0 || hypot(cx - ropeX[ropeN - 1], cy - ropeY[ropeN - 1]) >= 1f) {
+                if (ropeN == ropeX.size) { ropeX = ropeX.copyOf(ropeN * 2); ropeY = ropeY.copyOf(ropeN * 2) }
+                ropeX[ropeN] = cx; ropeY[ropeN] = cy; ropeN++
+            }
+            lastCellX = cx; lastCellY = cy
+            return
         }
         // протягиваем мазок от прошлой точки к новой, чтобы линия была сплошной
         val dist = hypot(cx - lastCellX, cy - lastCellY)
@@ -636,7 +652,17 @@ class StikhiyaGame : ApplicationAdapter(), Ui.Callbacks {
     }
 
     /** Мазок закончен: нарисованное твёрдое становится телами и начинает падать. */
+    private var ropeX = FloatArray(256)
+    private var ropeY = FloatArray(256)
+    private var ropeN = 0
+
     private fun finishStroke() {
+        if (ropeN > 0) {
+            val n = sim.bodies.createRope(ropeX, ropeY, ropeN, st.substance)
+            if (n > 0) say("Верёвка: $n звеньев — концы держатся за то, чего касались")
+            ropeN = 0
+            return
+        }
         if (st.tool == Tool.HINGE && !pivotX.isNaN()) {
             if (stroke.n > 0) {
                 sim.bodies.create(stroke)

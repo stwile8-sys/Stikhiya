@@ -173,12 +173,37 @@ class Heat(private val w: World, private val air: Air) {
                     val tj = temp[j]
                     if (ti > tj + 0.3f) {
                         // сила всплытия ~ разнице плотностей
-                        val p = (ti - tj) / (ti + Units.KELVIN) * 6f
+                        val p = (ti - tj) / (ti + Units.KELVIN) * 30f
                         if (w.rnd() < p) { temp[i] = tj; temp[j] = ti }
                     }
                 }
-                if (x + 1 < ww && type[i + 1].toInt() == Mat.AIR && abs(temp[i] - temp[i + 1]) > 0.3f && w.rnd() < 0.08f) {
-                    val t = temp[i]; temp[i] = temp[i + 1]; temp[i + 1] = t
+                // некуда подниматься (потолок или над ним ещё теплее) — тёплый воздух растекается в стороны,
+                // а холодный подтекает под него: так тёплый воздух заполняет купол шара сверху вниз
+                val tj2 = type[j].toInt()
+                val tc = temp[i]
+                // быстрая проверка: тёплый ли воздух рядом с более холодным (в спокойной комнате — нет)
+                val warmer = (x > 0 && tc > temp[i - 1] + 1f) || (x + 1 < ww && tc > temp[i + 1] + 1f)
+                if (warmer && (Mat.isCondensed(tj2) || (tj2 == Mat.AIR && temp[j] >= tc - 0.3f))) {
+                    // гравитационное течение быстрое (~√(g·Δρ/ρ·h) ≈ 1 м/с): шаг до 3 клеток
+                    val d = if (w.rnd() < 0.5f) -1 else 1
+                    var k = i
+                    var r = 1 + w.rndInt(3)
+                    var xx = x
+                    while (r > 0) {
+                        xx += d
+                        if (xx !in 0 until ww || type[k + d].toInt() != Mat.AIR) break
+                        k += d; r--
+                    }
+                    if (k != i) {
+                        val ti = temp[i]; val tk = temp[k]
+                        if (ti > tk + 1f && w.rnd() < (ti - tk) / (ti + Units.KELVIN) * 8f) { temp[i] = tk; temp[k] = ti }
+                    }
+                }
+                // восходящий поток подмешивает окружающий воздух (вовлечение): столб над огнём расширяется и остывает
+                if (x + 1 < ww && type[i + 1].toInt() == Mat.AIR) {
+                    val d = temp[i + 1] - temp[i]
+                    if (abs(d) > 2f) { val m = d * MIX; temp[i] += m; temp[i + 1] -= m }
+                    else if (abs(d) > 0.3f && w.rnd() < 0.08f) { val t = temp[i]; temp[i] = temp[i + 1]; temp[i + 1] = t }
                 }
             }
         }
@@ -296,6 +321,8 @@ class Heat(private val w: World, private val air: Air) {
     }
 
     companion object {
+        /** Доля выравнивания температуры соседних клеток воздуха за шаг (турбулентное перемешивание). */
+        const val MIX = 0.06f
         fun harmonic(a: Float, b: Float): Float = if (a + b <= 0f) 0f else 2f * a * b / (a + b)
 
         /** Во сколько раз быстрее идут химические процессы при нагреве (удвоение на 10 °C). */

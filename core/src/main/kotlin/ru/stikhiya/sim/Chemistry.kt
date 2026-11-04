@@ -347,7 +347,44 @@ class Chemistry(private val w: World, private val air: Air) {
 
     // ================= Твёрдые =================
 
+    private val burnerId = Mat.id("burner")
+    private val propaneId = Mat.id("propane")
+
+    /** Горелка: пропан из баллона сгорает над соплом, если вокруг есть кислород. */
+    private fun burner(i: Int) {
+        val up = Neighbors.at(w, i, 0)
+        if (up < 0) return
+        // автоматика: термодатчик под куполом (у ближайшего потолка над соплом, как у настоящего шара);
+        // выше 200 °C горелка притухает. Под открытым небом горит всегда.
+        if (w.rnd() < 0.05f) {
+            var j = up
+            var k = 0
+            while (j >= 0 && k < 190 && !Mat.isCondensed(w.type[j].toInt())) { j -= w.w; k++ }
+            var hot = false
+            if (j >= 0 && k < 190 && k > 4) {
+                var sum = 0f; var n = 0
+                var q = j + w.w
+                for (m in 0 until 6) { if (q < w.n && w.type[q].toInt() == Mat.AIR) { sum += w.temp[q]; n++ }; q += w.w }
+                hot = n > 0 && sum / n > THERMOSTAT
+            }
+            w.cure[i] = if (hot) 1f else 0f
+        }
+        if (w.cure[i] > 0.5f || w.rnd() > 0.6f) return
+        val t = w.type[up].toInt()
+        if (t != Mat.AIR && t != Mat.FLAME) return
+        if (air.oxygen(up) < Air.O2_FLAME_MIN) return
+        // ~3,3 мг пропана в секунду на клетку сопла ≈ 150 Вт
+        val fuel = 3.3e-6f * Units.DT / 0.6f
+        air.consumeOxygen(up, fuel * Mat.oxygenNeed[propaneId])
+        val e = fuel * Mat.burnHeat[propaneId] * 0.9f
+        val ft = Mat.flameTemp[propaneId]
+        if (t == Mat.FLAME) { w.amt[up] = minOf(40f, w.amt[up] + flameAmount(e, ft, Units.AMBIENT)); w.temp[up] = maxOf(w.temp[up], ft) }
+        else { w.put(up, Mat.FLAME, ft); w.amt[up] = flameAmount(e, ft, w.temp[up]) }
+        w.mixId[up] = propaneId.toShort()
+    }
+
     private fun solid(i: Int, id: Int) {
+        if (id == burnerId) { burner(i); return }
         if (Mat.flammable[id]) combustion(i, id)
         if (w.type[i].toInt() == id && !Mat.charAt[id].isNaN()) charring(i, id)
     }
@@ -544,5 +581,7 @@ class Chemistry(private val w: World, private val air: Air) {
     companion object {
         /** Игровой масштаб давления взрыва (звук в игре медленнее настоящего). */
         const val EXPLOSION_SCALE = 0.02f
+        /** Горелка держит воздух над собой не горячее этого, °C. */
+        const val THERMOSTAT = 200f
     }
 }

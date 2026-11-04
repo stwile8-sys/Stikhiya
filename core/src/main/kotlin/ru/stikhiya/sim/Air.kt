@@ -16,6 +16,9 @@ class Air(private val w: World) {
     val ah = (w.h + cs - 1) / cs
     val an = aw * ah
 
+    private val ropeId = Mat.id("rope")
+    private val cableId = Mat.id("cable")
+
     val pv = FloatArray(an)                 // кПа сверх атмосферного
     val vx = FloatArray(an)                 // м/с, поток через правую грань клетки
     val vy = FloatArray(an)                 // м/с, поток через нижнюю грань (+ вниз)
@@ -87,7 +90,8 @@ class Air(private val w: World) {
                 if (Mat.isFan[id]) {
                     fanX[c] += Mat.fanX[id].toFloat(); fanY[c] += Mat.fanY[id].toFloat()
                 } else if (ph == Phase.SOLID.ordinal) {
-                    solidCount[c]++
+                    // тонкие верёвки и тросы воздух не перекрывают
+                    if (id != ropeId && id != cableId) solidCount[c]++
                 } else if (ph >= Phase.LIQUID.ordinal) {
                     denseCount[c]++
                 } else {
@@ -98,8 +102,15 @@ class Air(private val w: World) {
         }
     }
 
+    /** Температура воздуха в комнате (среднее по открытому воздуху), °C — «наружный» воздух для шаров. */
+    var roomT = Units.AMBIENT
+        private set
+
     private fun finishScan() {
         val total = (cs * cs).toFloat()
+        var sum = 0.0; var cnt = 0
+        for (c in 0 until an) if (open[c] && fluidFrac[c] > 0f) { sum += avgT[c] / fluidFrac[c]; cnt++ }
+        if (cnt > 0) roomT = (sum / cnt).toFloat()
         for (c in 0 until an) {
             // стена толщиной в одну клетку уже перекрывает воздух; рыхлый завал — только плотный
             blocked[c] = solidCount[c] >= cs || solidCount[c] + denseCount[c] >= 13

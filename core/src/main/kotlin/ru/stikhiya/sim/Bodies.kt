@@ -10,6 +10,7 @@ import org.jbox2d.dynamics.joints.Joint
 import org.jbox2d.dynamics.joints.MouseJoint
 import org.jbox2d.dynamics.joints.MouseJointDef
 import org.jbox2d.dynamics.joints.RevoluteJointDef
+import org.jbox2d.dynamics.joints.RopeJointDef
 import org.jbox2d.dynamics.joints.WeldJointDef
 import kotlin.math.cos
 import kotlin.math.floor
@@ -69,6 +70,7 @@ val BOX_G = Units.GRAVITY / Units.CELL * B          // ускорение сво
 const val BOX_FORCE = B / Units.CELL                 // Н → сила Box2D (масса та же, ускорение ×10)
 const val HINGE = 1
 const val FIX = 2
+const val ROPE = 3
 /** Сколько силы одна клетка песка под телом выдерживает при ударе (≈ 40 кПа на 1 см²). */
 const val POWDER_STOP_FORCE = 4f * BOX_FORCE
 
@@ -107,13 +109,54 @@ class Bodies(private val w: World, private val air: Air) {
         terrainHash = Long.MIN_VALUE
     }
 
+    /** Подъёмная сила тёплого газа под телом, Н (для проверки и подсказок). */
+    fun liftOf(id: Int): Float {
+        val rb = get(id) ?: return 0f
+        var f = 0f
+        for (k in 0 until rb.stamped.n) {
+            val i = rb.stamped.a[k]
+            if (w.owner[i].toInt() != id) continue
+            val j = i + w.w
+            if (j < w.n && w.owner[j].toInt() != id && Mat.phase[w.type[j].toInt()] <= Phase.FLAME.ordinal) f += ceilingLift(j) * Units.AREA
+        }
+        return f
+    }
+
+    /**
+     * Подъёмная сила тёплого (или лёгкого) газа под потолком тела, Па: каждая клетка газа в столбце под
+     * потолком легче наружного воздуха комнаты на Δρ и толкает потолок вверх с силой Δρ·g·V (закон Архимеда).
+     * Так держится шар с открытым низом: тёплый воздух сам собирается под куполом.
+     */
+    private fun ceilingLift(j0: Int): Float {
+        val type = w.type
+        val t0 = type[j0].toInt()
+        val room = air.roomT
+        if (t0 == Mat.AIR && w.temp[j0] < room + 8f) return 0f
+        val rhoOut = Units.gasDensity(Units.AIR_MOLAR, room)
+        val ww = w.w
+        var j = j0
+        var sum = 0f
+        var n = 0
+        while (j < w.n && n < 160) {
+            val t = type[j].toInt()
+            if (Mat.phase[t] > Phase.FLAME.ordinal || w.owner[j].toInt() != 0) break
+            val rho = w.massDensity(t, w.temp[j]) * (if (t == Mat.AIR) 1f else maxOf(w.amt[j], 0.05f))
+            if (rho < rhoOut) sum += rhoOut - rho
+            n++
+            j += ww
+        }
+        val p = sum * Units.GRAVITY * Units.CELL
+        return if (p > 0f) p else 0f
+    }
+
     // ================= Шарниры, крепления, рука =================
 
     /** Неподвижная опора без формы — к ней крепятся шарниры и крепления «к стене». */
     private val ground: Body = physics.createBody(BodyDef())
 
     /** Соединение: a — номер тела, b — номер второго тела (0 — стена/фон), точка в клетках мира. */
-    class Link(val kind: Int, val a: Int, val b: Int, val x: Float, val y: Float, val joint: Joint)
+    class Link(val kind: Int, val a: Int, val b: Int, val x: Float, val y: Float, val joint: Joint,
+               val segments: IntArray? = null, val x2: Float = 0f, val y2: Float = 0f)
 
     val joints = ArrayList<Link>()
     private var mouse: MouseJoint? = null
@@ -160,6 +203,104 @@ class Bodies(private val w: World, private val air: Air) {
 
     fun isFixed(a: Int) = joints.any { it.kind == FIX && it.a == a }
 
+    /**
+     * Верёвка (или цепь) по пути пальца: звенья по ~3 см, соседние звенья на шарнирах,
+     * концы цепляются за тело или стену, которых касаются. Возвращает число звеньев.
+     */
+    fun createRope(px: FloatArray, py: FloatArray, n: Int, mat: Int, seg: Float = 3f): Int {
+        if (n < 1) return 0
+        // точки через равные промежутки вдоль пути
+        val xs = ArrayList<Float>(); val ys = ArrayList<Float>()
+        xs += px[0]; ys += py[0]
+        var acc = 0f
+        for (k in 1 until n) {
+            var ax = px[k - 1]; var ay = py[k - 1]
+            val bx = px[k]; val by = py[k]
+            var d = kotlin.math.hypot(bx - ax, by - ay)
+            while (acc + d >= seg) {
+                val f = (seg - acc) / d
+                ax += (bx - ax) * f; ay += (by - ay) * f
+                xs += ax; ys += ay
+                d = kotlin.math.hypot(bx - ax, by - ay); acc = 0f
+            }
+            acc += d
+        }
+        if (acc > 0.8f || xs.size == 1) { xs += px[n - 1]; ys += py[n - 1] }
+        // что было под концами до верёвки
+        val startTarget = attachAt(xs[0], ys[0])
+        val endTarget = attachAt(xs[xs.size - 1], ys[ys.size - 1])
+        val cells = IntList(8)
+        var prev = 0
+        var made = 0
+        for (k in 0 until xs.size - 1) {
+            cells.clear()
+            val x0 = xs[k]; val y0 = ys[k]; val x1 = xs[k + 1]; val y1 = ys[k + 1]
+            // звено — связная по сторонам цепочка клеток (по диагонали клетки не держатся друг за друга)
+            val steps = maxOf(1, (kotlin.math.hypot(x1 - x0, y1 - y0) * 3f).toInt())
+            var lx = Int.MIN_VALUE; var ly = 0
+            for (s2 in 0..steps) {
+                val f = s2 / steps.toFloat()
+                val cx = (x0 + (x1 - x0) * f).toInt(); val cy = (y0 + (y1 - y0) * f).toInt()
+                if (cx == lx && cy == ly) continue
+                if (lx != Int.MIN_VALUE && cx != lx && cy != ly) ropeCell(lx, cy, mat, cells)
+                ropeCell(cx, cy, mat, cells)
+                lx = cx; ly = cy
+            }
+            if (cells.n == 0) { prev = 0; continue }
+            create(cells)
+            val id = w.owner[cells.a[0]].toInt()
+            if (id == 0) { prev = 0; continue }
+            made++
+            segIds.add(id)
+            if (prev != 0) hinge(id, prev, x0, y0)
+            else if (k == 0 && startTarget >= 0) hinge(id, startTarget, x0, y0)
+            prev = id
+        }
+        if (prev != 0 && endTarget >= 0) hinge(prev, endTarget, xs[xs.size - 1], ys[ys.size - 1])
+        // звенья лёгкие, груз тяжёлый — цепочка шарниров тянулась бы как резина.
+        // Настоящая верёвка не растягивается: держим концы не дальше длины верёвки (RopeJoint).
+        if (made > 0 && startTarget >= 0 && endTarget >= 0 && startTarget != endTarget && segIds.n == made) {
+            var len = 0f
+            for (k in 1 until xs.size) len += kotlin.math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1])
+            val def = RopeJointDef()
+            def.bodyA = bodyOrGround(startTarget)
+            def.bodyB = bodyOrGround(endTarget)
+            v1.set(xs[0] * B, ys[0] * B); def.bodyA.getLocalPointToOut(v1, def.localAnchorA)
+            v1.set(xs[xs.size - 1] * B, ys[ys.size - 1] * B); def.bodyB.getLocalPointToOut(v1, def.localAnchorB)
+            def.maxLength = len * B * 1.01f
+            def.collideConnected = true
+            val j = physics.createJoint(def)
+            joints += Link(ROPE, startTarget, endTarget, xs[0], ys[0], j, IntArray(segIds.n) { segIds.a[it] },
+                xs[xs.size - 1], ys[ys.size - 1])
+        }
+        segIds.clear()
+        return made
+    }
+
+    private fun ropeCell(x: Int, y: Int, mat: Int, cells: IntList) {
+        if (!w.inside(x, y)) return
+        val i = w.idx(x, y)
+        if (w.type[i].toInt() != Mat.AIR) return
+        w.put(i, mat)
+        cells.add(i)
+    }
+
+    private val segIds = IntList(32)
+
+    /** За что зацепится конец верёвки в точке: номер тела, 0 — стена/пол, −1 — ни за что (висит свободно). */
+    private fun attachAt(x: Float, y: Float): Int {
+        val cx = x.toInt(); val cy = y.toInt()
+        for (r in 0..1) for (dy in -r..r) for (dx in -r..r) {
+            val xx = cx + dx; val yy = cy + dy
+            if (!w.inside(xx, yy)) continue
+            val i = w.idx(xx, yy)
+            val o = w.owner[i].toInt()
+            if (o != 0) return o
+            if (Mat.isSolid(w.type[i].toInt())) return 0
+        }
+        return -1
+    }
+
     /** Рука берёт тело пальцем: пружинная связь тянет точку тела к пальцу. */
     fun grab(id: Int, x: Float, y: Float): Boolean {
         release()
@@ -192,6 +333,14 @@ class Bodies(private val w: World, private val air: Air) {
 
     /** Тело исчезло (сгорело, стёрто): его соединения пропадают вместе с ним. */
     private fun forgetJoints(id: Int) {
+        // перегорело звено — верёвка больше не держит
+        val it2 = joints.iterator()
+        while (it2.hasNext()) {
+            val l = it2.next()
+            if (l.kind == ROPE && l.segments != null && id in l.segments && l.a != id && l.b != id) {
+                physics.destroyJoint(l.joint); it2.remove()
+            }
+        }
         joints.removeAll { it.a == id || it.b == id }
         if (grabbed == id) { mouse = null; grabbed = 0 }
     }
@@ -386,6 +535,17 @@ class Bodies(private val w: World, private val air: Air) {
                 } else if (d == 1 && (ph == Phase.SOLID.ordinal)) {
                     solidBottom++
                 } else if (ph <= Phase.FLAME.ordinal) {
+                    if (d == 1) {
+                        // под потолком тела — тёплый или лёгкий газ: подъёмная сила (воздушный шар, крышка над огнём)
+                        val lift = ceilingLift(j)
+                        if (lift != 0f) {
+                            val f = lift * Units.AREA * BOX_FORCE
+                            val px = (x + 0.5f) * B - wc.x
+                            val py = (y + 1f) * B - wc.y
+                            fy -= f
+                            torque += px * (-f)
+                        }
+                    }
                     // давление воздуха давит на грань снаружи внутрь
                     val p = air.pv[air.cellOf(j)]
                     if (p > 0.5f || p < -0.5f) {
@@ -477,6 +637,9 @@ class Bodies(private val w: World, private val air: Air) {
      */
     private fun airDrag(rb: RigidBody) {
         val body = rb.body
+        // лёгкие тела (оболочка шара, бумага) воздух не даёт раскрутить
+        val rho = body.mass / (maxOf(rb.count, 1) * Units.VOL)
+        if (rho < 100f) body.angularVelocity = body.angularVelocity * (0.97f + 0.03f * rho / 100f)
         val lv = body.linearVelocity
         val vx = lv.x / B * Units.CELL   // м/с
         val vy = lv.y / B * Units.CELL
