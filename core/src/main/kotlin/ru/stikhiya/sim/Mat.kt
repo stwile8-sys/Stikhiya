@@ -51,7 +51,29 @@ object Mat {
     val porosity = FloatArray(count) { list[it].porosity }
     val fieldCap = FloatArray(count) { list[it].fieldCapacity }
     val permeability = FloatArray(count) { list[it].permeability }
-    val grainDensity = FloatArray(count) { list[it].grainDensity }
+    /**
+     * Плотность самих частиц порошка (насыпная меньше — между зёрнами воздух). Решает, тонет ли порошок
+     * в жидкости: мука, рис, глина, цемент тонут; молотый перец, попкорн, опилки, снег — плавают.
+     */
+    val grainDensity = FloatArray(count) {
+        val g = list[it].grainDensity
+        if (g > 0f || list[it].phase != Phase.POWDER) g else when (list[it].key) {
+            "soil", "clay" -> 2600f
+            "cement" -> 3150f
+            "gypsum" -> 2320f
+            "ash" -> 2000f
+            "snow" -> 917f
+            "gunpowder" -> 1800f
+            "thermite" -> 4200f
+            "flour", "starch", "cocoa" -> 1450f
+            "rice", "popcorn_kernel" -> 1450f
+            "yeast", "dough", "cooked_rice", "seeds" -> 1100f
+            "curd" -> 1080f
+            "coffee" -> 1200f
+            "pepper" -> 900f        // молотый перец плавает: в частицах воздух и масло
+            else -> 0f
+        }
+    }
     val wets = BooleanArray(count) { list[it].wets }
     val volatility = FloatArray(count) { list[it].volatility }
 
